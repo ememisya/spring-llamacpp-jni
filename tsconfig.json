@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "strict": true,
+    "jsx": "preserve",
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "lib": ["ESNext", "DOM"],
+
+    "types": [
+      "vuetify",
+      "@intlify/vite-plugin-vue-i18n/client",
+      "node",
+      "vite/client",
+      "@types/jest"
+    ],
+
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/main/javascript/*"]
+    }
+  },
+
+  "include": [
+    "src/main/javascript/**/*.ts",
+    "src/main/javascript/**/*.d.ts",
+    "src/main/javascript/**/*.tsx",
+    "src/main/javascript/**/*.vue"
+  ]
+}

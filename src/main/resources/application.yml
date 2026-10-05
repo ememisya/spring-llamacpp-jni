@@ -1,0 +1,31 @@
+server:
+  port: 8081
+
+llama:
+  enabled: true
+  model-path: '/your-model.gguf'
+  gpu-layers: 20
+
+spring:
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    date-format: "yyyy-MM-dd'T'HH:mm:ss"
+    time-zone: UTC
+    deserialization:
+      FAIL_ON_UNKNOWN_PROPERTIES: false
+
+  datasource:
+    url: "jdbc:h2:file:./data.db;MODE=MariaDB;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE"
+    driverClassName: org.h2.Driver
+    username: sa
+    password: ""
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    database-platform: org.hibernate.dialect.H2Dialect
+
+  h2:
+    console:
+      enabled: false

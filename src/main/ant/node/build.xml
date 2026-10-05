@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="node-tasks" default="execute-npm-install" xmlns:unless="ant:unless">
+    <target name="execute-npm-install">
+        <available file="${project.basedir}/node_modules" 
+                   type="dir" 
+                   property="nodeModules.present"/>
+        <exec unless:set="nodeModules.present"
+              dir="${project.basedir}"
+              executable="npm" 
+              failonerror="true">
+            <arg value="install" />
+        </exec>
+    </target>
+    <target name="run-vite-unit-tests">
+        <echo message="Running front-end tests..." />
+        <exec dir="${project.basedir}"
+              executable="npm" 
+              failonerror="true">
+            <arg value="run" />
+            <arg value="test:unit" />
+        </exec>
+    </target>
+    <target name="clean">
+        <echo message="Cleaning front-end node_modules..." />
+        <delete dir="${project.basedir}/node_modules" quiet="true" failonerror="false" />
+        <delete file="${project.basedir}/package-lock.json" quiet="true" failonerror="false" />    
+    </target>
+</project>

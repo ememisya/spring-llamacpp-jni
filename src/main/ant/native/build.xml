@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="node-tasks" default="compile-llama-cpp" xmlns:unless="ant:unless">
+    <target name="clean">
+        <echo message="Cleaning native llama.cpp build directory..." />
+        <delete dir="${project.basedir}/src/native/llama.cpp/build" />
+    </target>
+    <target name="compile-llama-cpp">
+        <echo message="Compiling llama.cpp native code..." />
+                                
+        <condition property="native.ext" value="dll">
+            <os family="windows"/>
+        </condition>
+
+        <condition property="native.ext" value="so">
+            <os family="unix"/>
+        </condition>
+
+        <condition property="native.ext" value="dylib">
+            <os family="mac"/>
+        </condition>
+
+        <!-- Run cmake .. -->
+        <exec dir="${project.basedir}/src/native/llama.cpp"
+              executable="cmake" 
+              failonerror="true">
+                                
+            <arg value="-B" />
+            <arg value="build" />
+            <arg value="-S" />
+            <arg value="." />
+        </exec>
+ 
+        <exec dir="${project.basedir}/src/native/llama.cpp"
+              executable="cmake"
+              failonerror="true">
+            <arg value="--build" />
+            <arg value="build" />
+            <arg value="--config" />
+            <arg value="Release" />
+        </exec>              
+    </target>
+    <target name="compile-jni">
+        <echo message="Compiling JNI native code..." />
+                                
+        <condition property="native.ext" value="dll">
+            <os family="windows"/>
+        </condition>
+
+        <condition property="native.ext" value="so">
+            <os family="unix"/>
+        </condition>
+
+        <condition property="native.ext" value="dylib">
+            <os family="mac"/>
+        </condition>
+
+                    
+        <!-- Run cmake .. -->
+        <exec dir="${project.basedir}/src/native"
+                                      executable="cmake" failonerror="true">
+            <arg value="-B" />
+            <arg value="../../target/native" />
+            <arg value="-S" />
+            <arg value="." />
+        </exec>
+ 
+        <exec dir="${project.basedir}/src/native"
+                                      executable="cmake" failonerror="true">
+            <arg value="--build" />
+            <arg value="../../target/native" />
+            <arg value="--config" />
+            <arg value="Release" />
+        </exec>
+                                
+        <!-- Copy the JNI entrypoint library (llama_jni.*) -->
+        <copy todir="${project.build.outputDirectory}" flatten="true" failonerror="false" quiet="true">
+            <fileset dir="${project.basedir}/target/native/Release">
+                <include name="*llama_jni*.${native.ext}"/>
+            </fileset>
+        </copy>
+                                
+        <!-- Copy the JNI entrypoint library (llama_jni.*) -->
+        <copy todir="${project.build.outputDirectory}" flatten="true" failonerror="false" quiet="true">
+            <fileset dir="${project.basedir}/target/native">
+                <include name="libllama_jni.${native.ext}"/>
+            </fileset>
+        </copy>
+
+        <!-- Copy dllpath.dll only on Windows -->
+        <copy todir="${project.build.outputDirectory}" flatten="true" failonerror="false" quiet="true">
+            <fileset dir="${project.basedir}/target/native/Release">
+                <include name="dllpath.dll"/>
+            </fileset>
+        </copy>
+
+        <!-- Copy ALL native dependency libraries -->
+        <copy todir="${project.build.outputDirectory}" flatten="true" failonerror="false" quiet="true">
+            <fileset dir="${project.basedir}/src/native/llama.cpp/build/bin">
+                <include name="**/*.dll"/>
+                <include name="**/*.so"/>
+                <include name="**/*.dylib"/>
+            </fileset>
+        </copy>
+
+    </target>
+</project>
