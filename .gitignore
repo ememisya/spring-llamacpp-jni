@@ -1,0 +1,11 @@
+node_modules
+.DS_Store
+dist
+package-lock.json
+dist-ssr
+*.local
+*.db
+*.log
+src/native/llama.cpp/build
+target
+nb-*.*
