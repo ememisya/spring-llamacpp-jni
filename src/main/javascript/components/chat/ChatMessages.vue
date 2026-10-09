@@ -27,6 +27,7 @@
             class="text-field"
             :contenteditable="isEditing(item.id)"
             @click="startEditing(item.id)"
+            @blur="item.content = ($event.target as HTMLElement).innerText"
             v-text="item.content"
           ></div>
           <hr v-if="isEditing(item.id)" />
@@ -49,7 +50,7 @@
                 variant="plain"
                 class="btn-chat float-right"
                 size="small"
-                @click="updateMessageContent(item.id, item.content, item.id)"
+                @click="updateMessageContent(item.id, item.content)"
               >
                 <v-icon>mdi-check-circle-outline</v-icon>
                 {{ $t('doneButtonTitle') }}
