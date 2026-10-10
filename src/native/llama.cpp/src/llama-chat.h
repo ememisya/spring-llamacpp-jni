@@ -5,6 +5,7 @@
 #include <cstdint>
 
 enum llm_chat_template {
+    LLM_CHAT_TEMPLATE_ALPACA,
     LLM_CHAT_TEMPLATE_CHATML,
     LLM_CHAT_TEMPLATE_LLAMA_2,
     LLM_CHAT_TEMPLATE_LLAMA_2_SYS,
