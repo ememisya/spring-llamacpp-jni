@@ -26,6 +26,7 @@ static std::string trim(const std::string & str) {
 }
 
 static const std::map<std::string, llm_chat_template> LLM_CHAT_TEMPLATES = {
+    { "alpaca",            LLM_CHAT_TEMPLATE_ALPACA            },
     { "chatml",            LLM_CHAT_TEMPLATE_CHATML            },
     { "llama2",            LLM_CHAT_TEMPLATE_LLAMA_2           },
     { "llama2-sys",        LLM_CHAT_TEMPLATE_LLAMA_2_SYS       },
@@ -157,9 +158,9 @@ llm_chat_template llm_chat_detect_template(const std::string & tmpl) {
             return LLM_CHAT_TEMPLATE_VICUNA_ORCA;
         }
         return LLM_CHAT_TEMPLATE_VICUNA;
-    } else if (tmpl_contains("### Instruction:") && tmpl_contains("<|EOT|>")) {
+    } else if (tmpl_contains("### Instruction:")) {
         // deepseek-ai/deepseek-coder-33b-instruct
-        return LLM_CHAT_TEMPLATE_DEEPSEEK;
+        return tmpl_contains("<|EOT|>") ? LLM_CHAT_TEMPLATE_DEEPSEEK : LLM_CHAT_TEMPLATE_ALPACA;
     } else if (tmpl_contains("<|START_OF_TURN_TOKEN|>") && tmpl_contains("<|USER_TOKEN|>")) {
         // CohereForAI/c4ai-command-r-plus
         return LLM_CHAT_TEMPLATE_COMMAND_R;
@@ -463,6 +464,20 @@ int32_t llm_chat_apply_template(
         if (add_ass) {
             ss << "### Response:\n";
         }
+    } else if (tmpl == LLM_CHAT_TEMPLATE_ALPACA) {
+        for (auto message : chat) {
+            std::string role(message->role);
+            if (role == "system") {
+                ss << "### System:\n" << message->content << "\n\n";
+            } else if (role == "user") {
+                ss << "### Instruction:\n" << message->content << "\n\n";
+            } else if (role == "assistant") {
+                ss << "### Response:\n" << message->content << "</s>\n";
+            }
+        }
+        if (add_ass) {
+            ss << "### Response:\n";
+       }
     } else if (tmpl == LLM_CHAT_TEMPLATE_COMMAND_R) {
         // CohereForAI/c4ai-command-r-plus
         for (auto message : chat) {
