@@ -29,7 +29,6 @@
   }>()
 
   function handleDrawerUpdate(open: number) {
-    console.log('SideDrawer handleDrawerUpdate = ' + open)
     emit('update-drawer', open)
   }
 </script>
