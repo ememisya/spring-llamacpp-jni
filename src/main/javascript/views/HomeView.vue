@@ -178,13 +178,10 @@
 
   // Drawer
   function toggleDrawer() {
-    console.log('HomeView toggleDrawer b = ' + drawer.value)
     drawer.value = !drawer.value
-    console.log('HomeView toggleDrawer a = ' + drawer.value)
   }
 
   function updateDrawer(value: boolean) {
-    console.log('HomeView toggleDrawer = ' + value)
     drawer.value = value
   }
 
@@ -208,7 +205,7 @@
 
   // Scratchpad
   function updateScratchPad(value: string) {
-    store.dispatch(T.SET_SCRATCHPAD_ACTION, value)
+    store.dispatch(T.SET_SCRATCH_PAD_ACTION, value)
   }
 
   function updateDryAllowedLength(value: number) {
