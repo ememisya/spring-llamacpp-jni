@@ -159,6 +159,13 @@ export const ChatStore = {
       commit(T.SET_SYSTEM_MESSAGE, message)
     },
 
+    [T.SET_SCRATCH_PAD_ACTION](
+      { commit }: ActionContext<ChatState, ChatState>,
+      scratchPad: string,
+    ): void {
+      commit(T.SET_SCRATCH_PAD, scratchPad)
+    },
+
     [T.SET_STATE_FROM_REQUEST_ACTION](
       { commit }: ActionContext<ChatState, ChatState>,
       request: ChatParams,
@@ -275,14 +282,6 @@ export const ChatStore = {
     ) {
       commit(T.SET_TEMPERATURE, value)
     },
-
-    generateRandomId(length: number = 12): string {
-      const chars =
-        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-      return Array.from({ length }, () =>
-        chars.charAt(Math.floor(Math.random() * chars.length)),
-      ).join('')
-    },
   },
 
   // =========================
@@ -363,6 +362,10 @@ export const ChatStore = {
 
     [T.SET_SYSTEM_MESSAGE](state: ChatState, message: string): void {
       state.systemMessage = message
+    },
+
+    [T.SET_SCRATCH_PAD](state: ChatState, scratchPad: string): void {
+      state.scratchPad = scratchPad
     },
 
     [T.SET_CONTEXT_SIZE](state: ChatState, value: number): void {
