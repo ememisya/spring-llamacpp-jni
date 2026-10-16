@@ -21,14 +21,13 @@ instance.interceptors.response.use(
     return response.data
   },
   (error) => {
-    console.error('Response error:', error)
-
     if (error.response) {
       const status = error.response.status
       switch (status) {
+        case 400:
+          break
         case 401:
           showSnackbar('You need to authenticate!', 'error', 2500)
-
           break
         case 403:
           showSnackbar('Absolutely haram!', 'error', 2500)

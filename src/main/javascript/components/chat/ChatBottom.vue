@@ -7,20 +7,27 @@
         </slot>
       </v-col>
       <v-col cols="2">
-        <v-row>
-          <v-col>
-            <v-card variant="flat" class="align-center append">
+        <v-card variant="flat" class="align-center append">
+          <v-tooltip :text="messagesLength + ' ' + $t('messagesLengthMessage')">
+            <template #activator="{ props }">
               <slot name="append"> </slot>
-            </v-card>
-          </v-col>
-        </v-row>
-        <v-row>
-          <v-col
-            ><v-card variant="flat" class="align-center messages">
-              {{ messagesLength }} {{ $t('messagesLengthMessage') }}
-            </v-card></v-col
-          >
-        </v-row>
+              <v-progress-linear
+                v-bind="props"
+                :model-value="currentTokensModel"
+                :max="maxTokensModel"
+                :indeterminate="!currentTokensModel || currentTokensModel <= 0"
+                height="28"
+                class="context-progress"
+                color="primary"
+              >
+                <!-- The default slot maps text over the loading bar -->
+                <template #default="{ value }">
+                  {{ $t('contextProgressTitle') }} {{ Math.ceil(value) }}%
+                </template>
+              </v-progress-linear>
+            </template>
+          </v-tooltip>
+        </v-card>
       </v-col>
     </v-row>
   </v-card>
@@ -32,20 +39,17 @@
   defineProps<{
     editing: number[]
     messagesLength: number
+    maxTokens: number
+    currentTokens: number
   }>()
+
+  const currentTokensModel = defineModel<number>('currentTokens')
+  const maxTokensModel = defineModel<number>('maxTokens')
 </script>
 
 <style scoped>
-  .sidebar-number-input {
-    align-content: normal;
-  }
-
-  .messages {
-    float: right;
-    display: block;
-    position: absolute;
-    right: 5px;
-    bottom: 5px;
+  .context-progress {
+    min-width: 90px;
   }
 
   .append {
