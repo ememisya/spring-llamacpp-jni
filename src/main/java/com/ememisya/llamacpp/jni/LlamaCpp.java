@@ -86,6 +86,20 @@ public class LlamaCpp {
     );
 
     /**
+     * Returns the number of tokens in a given chat body.
+     *
+     * @param modelPtr pointer to the loaded model
+     * @param ctxPtr pointer to an existing llama_context
+     * @param params chat parameters including messages and sampler settings
+     * @return number of tokens after tokenization
+     */
+    public native int getTokenCount(
+            final long modelPtr,
+            final long ctxPtr,
+            final ChatParams params
+    );
+
+    /**
      * Creates a new llama.cpp context for stateful generation.
      *
      * @param modelPtr pointer to the loaded model

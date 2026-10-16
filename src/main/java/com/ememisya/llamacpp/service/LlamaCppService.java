@@ -136,6 +136,32 @@ public class LlamaCppService {
     }
 
     /**
+     * Calculates the number of tokens given a chat body
+     *
+     * @param params chat parameters including messages and sampler
+     * configuration
+     * @return generated text from llama.cpp
+     * @throws IllegalStateException if the context has not been initialized
+     */
+    public Integer getTokenCount(final ChatParams params) {
+        if (contextPtr == 0) {
+            throw new IllegalStateException(
+                    "Context not initialized, please try again...");
+        }
+
+        return llama.getTokenCount(modelPtr, contextPtr, params);
+    }
+
+    /**
+     * Checks whether or not context is initialized
+     *
+     * @return true if context is initialized
+     */
+    public boolean isContextInitialized() {
+        return (contextPtr == 0);
+    }
+
+    /**
      * Frees the active llama.cpp context if one exists. Safe to call multiple
      * times.
      */

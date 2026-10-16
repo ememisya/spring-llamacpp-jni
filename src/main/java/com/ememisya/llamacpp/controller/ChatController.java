@@ -219,7 +219,36 @@ public class ChatController {
             return llama.chat(requestBody);
         } catch (final IllegalStateException e) {
             lastContextHash = null;
-            return "Context not initialized, please try again...";
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Could not initialize context");
+        }
+    }
+
+    /**
+     * Returns the number of tokens in the current request body
+     *
+     * @param requestBody the completions parameters including messages and
+     * model settings
+     * @return the generated assistant response
+     */
+    @CrossOrigin
+    @PostMapping("/get-token-count")
+    public Integer getTokenCount(@RequestBody final ChatParams requestBody) {
+        try {
+            if (!llama.isContextInitialized()) {
+                llama.initializeContext(
+                        requestBody.getContextSize(),
+                        requestBody.getBatchSize(),
+                        requestBody.getuBatchSize()
+                );
+            }
+            return llama.getTokenCount(requestBody);
+        } catch (final IllegalStateException e) {
+            lastContextHash = null;
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Context not initialized");
         }
     }
 
