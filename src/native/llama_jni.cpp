@@ -257,6 +257,55 @@ Java_com_ememisya_llamacpp_jni_LlamaCpp_generate(
 }
 
 /**
+ * Tokenizes the messages and returns the number of tokens
+ *
+ * @param env            JNI environment
+ * @param obj            Java LlamaCpp instance
+ * @param modelPtr       Pointer to llama_model
+ * @param ctxPtr         Pointer to llama_context
+ * @param chatParamsObj  Java ChatParams instance
+ *
+ * @return Token count
+ */
+JNIEXPORT jint JNICALL
+Java_com_ememisya_llamacpp_jni_LlamaCpp_getTokenCount(
+        JNIEnv* env,
+        jobject obj,
+        jlong modelPtr,
+        jlong ctxPtr,
+        jobject chatParamsObj) {
+
+    llama_model* model = reinterpret_cast<llama_model*>(modelPtr);
+    llama_context* ctx = reinterpret_cast<llama_context*>(ctxPtr);
+
+    if (!model || !ctx) {
+        return -1; // Indicate an error state
+    }
+
+    const llama_vocab* vocab = llama_model_get_vocab(model);
+
+    auto msgs = extract_messages(env, chatParamsObj);
+    if (msgs.empty()) {
+        return 0; // No messages to count
+    }
+
+    std::string prompt = apply_chat_template(model, ctx, msgs);
+    if (prompt.empty()) {
+        free_messages(msgs);
+        return -2; // Chat template error
+    }
+
+    auto tokens = tokenize_prompt(vocab, ctx, prompt);
+    jint token_count = static_cast<jint>(tokens.size());
+
+    // Clean up allocated structures before returning
+    free_messages(msgs);
+
+    return token_count;
+}
+
+
+/**
  * Generate text using an existing llama_context.
  *
  * This is the stateful generation path.
