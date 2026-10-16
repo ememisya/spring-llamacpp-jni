@@ -49,6 +49,7 @@
     "saySomethingPlaceholder": "Say something...",
     "messagesLengthMessage": "message(s)",
     "forceNewContextCheckboxTitle": "Force New",
+    "contextProgressTitle": "Context",
     "loadedStateMessage": "Loaded state",
     "savedStateMessage": "Saved state",
     "clearedStateMessage": "Cleared state",

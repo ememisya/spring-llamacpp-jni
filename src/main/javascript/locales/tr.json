@@ -48,6 +48,7 @@
     "saySomethingPlaceholder": "Bir şeyler yazın...",
     "messagesLengthMessage": "total mesaj",
     "forceNewContextCheckboxTitle": "Yeniye Zorla",
+    "contextProgressTitle": "Bağlam",
     "loadedStateMessage": "Durum yüklendi",
     "savedStateMessage": "Durum kaydedildi",
     "clearedStateMessage": "Durum temizlendi",

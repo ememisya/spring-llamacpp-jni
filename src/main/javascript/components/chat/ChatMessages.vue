@@ -24,11 +24,19 @@
       >
         <v-card-text class="text">
           <div
+            v-if="item.content?.trim().length > 0"
             ref="textFields"
             class="text-field"
             :contenteditable="isEditing(item.id)"
             @click="startEditing(item.id)"
             v-text="item.content"
+          ></div>
+          <div
+            v-else
+            ref="textFields"
+            contenteditable="true"
+            class="text-field empty-text-field"
+            @click="startEditing(item.id)"
           ></div>
           <hr v-if="isEditing(item.id)" />
           <v-row>
@@ -182,6 +190,10 @@
 
   .text-field {
     padding: 5px;
+  }
+
+  .empty-text-field {
+    min-width: 150px;
   }
 
   /* Simple CSS helper to give the text itself a gentle flashing breath effect */

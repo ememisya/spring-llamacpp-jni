@@ -63,7 +63,12 @@
     />
 
     <BottomBar>
-      <ChatBottom :messages-length="chatCount" :editing="editing">
+      <ChatBottom
+        :messages-length="chatCount"
+        :max-tokens="contextSize"
+        :current-tokens="tokenCount"
+        :editing="editing"
+      >
         <template #prepend>
           <ChatInput :disabled="requestPending" @send-message="sendMessage" />
         </template>
@@ -81,7 +86,7 @@
 </template>
 
 <script setup lang="ts">
-  import { ref, computed } from 'vue'
+  import { ref, computed, onMounted } from 'vue'
   import { useStore } from 'vuex'
   import { showSnackbar } from '@/composables/useSnackbar'
   import { key } from '@/store'
@@ -107,6 +112,7 @@
   import * as T from '@/store/chat.types'
   import {
     doChat,
+    doGetTokenCount,
     doLoadChatParamsLog,
     doSaveChatParams,
     doDeleteChatParamsLog,
@@ -124,6 +130,8 @@
   const drawer = ref(false)
 
   const forceNewContext = ref(false)
+
+  const tokenCount = ref(0)
 
   // Derived state
   const requestPending = computed(() => store.getters.requestPending)
@@ -149,6 +157,10 @@
   const repeatPenalty = computed(() => store.getters.repeatPenalty)
   const rngSeed = computed(() => store.getters.rngSeed)
   const temperature = computed(() => store.getters.temperature)
+
+  onMounted(async () => {
+    updateTokenCount()
+  })
 
   function constructRequest(): ChatParams {
     const generatedSystemMessage: ChatMessage = {
@@ -284,6 +296,7 @@
         editing?.value?.splice(indexOfIndex, 1)
       }
     }
+    updateTokenCount()
   }
 
   function deleteMessage(id: number) {
@@ -294,11 +307,23 @@
         editing?.value?.splice(indexOfIndex, 1)
       }
     }
+    updateTokenCount()
+  }
+
+  async function updateTokenCount() {
+    try {
+      tokenCount.value = await doGetTokenCount(constructRequest())
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        tokenCount.value = -1
+      }
+    }
   }
 
   async function getChatParamsLog(id: number) {
     const data: ChatParamsLog = await doLoadChatParamsLog(id)
     store.dispatch(T.SET_STATE_FROM_REQUEST_ACTION, data.chatParams)
+    updateTokenCount()
     showSnackbar(t('loadedStateMessage'), 'success', 2500)
   }
 
@@ -331,6 +356,7 @@
 
   function clearChat() {
     store.dispatch(T.CLEAR_CHAT_ACTION)
+    tokenCount.value = 0
     showSnackbar(t('clearedStateMessage'), 'success', 2500)
   }
 
@@ -345,6 +371,11 @@
         content: response,
       })
       playBeep()
+      updateTokenCount()
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        showSnackbar(error?.message, 'warning', 2500)
+      }
     } finally {
       store.dispatch(T.SET_REQUEST_PENDING_ACTION, false)
     }

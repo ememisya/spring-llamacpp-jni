@@ -25,6 +25,16 @@ export function doChat(
   })
 }
 
+export function doGetTokenCount(
+  data: ChatParams,
+): Promise<ApiResponse<number>> {
+  return request({
+    url: '/chat/get-token-count',
+    method: 'post',
+    data,
+  })
+}
+
 export function doSaveChatParams(
   data: ChatParams,
 ): Promise<ApiResponse<ChatParamsLog>> {
