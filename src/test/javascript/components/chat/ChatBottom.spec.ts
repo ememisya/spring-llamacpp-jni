@@ -7,11 +7,13 @@ describe('ChatBottom.vue', () => {
     const wrapper = mount(ChatBottom, {
       props: {
         editing: [],
+        currentTokens: 5,
+        maxTokens: 10,
         messagesLength: 3,
       },
     })
 
-    expect(wrapper.text()).toContain('3 message(s)')
+    expect(wrapper.text()).toContain('50%')
   })
 
   it('renders custom prepend slot content', () => {
