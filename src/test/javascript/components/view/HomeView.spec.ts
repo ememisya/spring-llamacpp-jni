@@ -21,6 +21,7 @@ describe('HomeView.vue', () => {
   beforeEach(() => {
     mockAxios.reset()
     mockAxios.onPost('/chat/completions').reply(200, 'Mocked response')
+    mockAxios.onPost('/chat/get-token-count').reply(200, 5)
     mockAxios.onGet(/\/chat\/.*log.*/).reply(200, [])
 
     vi.clearAllMocks()
