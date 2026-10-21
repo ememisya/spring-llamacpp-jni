@@ -17,14 +17,7 @@ export default defineConfig({
   css: {
     preprocessorOptions: {
       scss: {
-        additionalData: `@import "@/styles/variables.scss";`,
-        silenceDeprecations: [
-          'mixed-decls',
-          'color-functions',
-          'global-builtin',
-          'import',
-          'legacy-js-api',
-        ],
+        additionalData: `@use "@/styles/variables.scss";`,
       }
     }
   },
