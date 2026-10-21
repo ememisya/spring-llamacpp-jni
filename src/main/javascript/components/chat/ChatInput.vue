@@ -9,12 +9,19 @@
       :disabled="disabledModel"
       @keydown="handleKeydown"
     >
+      <template #prepend-inner>
+        <v-progress-circular
+          v-if="disabledModel"
+          class="mr-2"
+          indeterminate
+        ></v-progress-circular>
+      </template>
     </v-text-field>
   </v-card>
 </template>
 
 <script setup lang="ts">
-  import { ref, defineProps, defineEmits } from 'vue'
+  import { ref } from 'vue'
   import { useI18n } from 'vue-i18n'
   const { t } = useI18n()
 

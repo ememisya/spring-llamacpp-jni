@@ -64,5 +64,5 @@ export interface ChatState {
   rngSeed: number
   scratchPad: string
   temperature: number
-  requestPending: boolean
+  requestPending: number
 }

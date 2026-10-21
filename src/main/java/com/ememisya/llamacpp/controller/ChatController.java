@@ -202,7 +202,7 @@ public class ChatController {
      */
     @CrossOrigin
     @PostMapping("/completions")
-    public String completions(@RequestBody final ChatParams requestBody,
+    public String postCompletions(@RequestBody final ChatParams requestBody,
             @RequestParam(required = false) final boolean forceNewContext)
             throws NoSuchAlgorithmException {
 
@@ -226,6 +226,39 @@ public class ChatController {
     }
 
     /**
+     * Reloads the model in current GPU and shared memory.
+     *
+     * @param modelIndex the model index to select
+     */
+    @CrossOrigin
+    @PostMapping("/reload-model")
+    public void postReloadModel(
+            @RequestParam(required = false) final int modelIndex) {
+        llama.freeModel();
+        llama.loadModel(modelIndex, modelIndex);
+        lastContextHash = null;
+    }
+
+    /**
+     * Returns the model labels
+     *
+     * @return size of modelPath list
+     */
+    @CrossOrigin
+    @GetMapping("/models-list")
+    public List<String> getModelsList() {
+        final List<String> models = new ArrayList<>();
+        for (int i = 0; i < llama.getModelPath().size(); i++) {
+            if (i < llama.getModelLabel().size()) {
+                models.add(llama.getModelLabel().get(i));
+            } else {
+                models.add("#" + i);
+            }
+        }
+        return models;
+    }
+
+    /**
      * Returns the number of tokens in the current request body
      *
      * @param requestBody the completions parameters including messages and
@@ -233,7 +266,7 @@ public class ChatController {
      * @return the generated assistant response
      */
     @CrossOrigin
-    @PostMapping("/get-token-count")
+    @PostMapping("/token-count")
     public Integer getTokenCount(@RequestBody final ChatParams requestBody) {
         try {
             if (!llama.isContextInitialized()) {

@@ -21,13 +21,15 @@ describe('HomeView.vue', () => {
   beforeEach(() => {
     mockAxios.reset()
     mockAxios.onPost('/chat/completions').reply(200, 'Mocked response')
-    mockAxios.onPost('/chat/get-token-count').reply(200, 5)
+    mockAxios.onPost('/chat/token-count').reply(200, 5)
+    mockAxios.onPost('/chat/reload-model').reply(200)
+    mockAxios.onGet('/chat/models-list').reply(200, ['Stheno', '5'])
     mockAxios.onGet(/\/chat\/.*log.*/).reply(200, [])
 
     vi.clearAllMocks()
 
-    // Spies on doChat while calling the original code
-    vi.spyOn(chatApi, 'doChat')
+    // Spies on postCompletions while calling the original code
+    vi.spyOn(chatApi, 'postCompletions')
 
     dispatchSpy = vi.spyOn(store, 'dispatch').mockImplementation(async () => {})
 
@@ -79,7 +81,7 @@ describe('HomeView.vue', () => {
       id: expect.any(Number),
       content: 'Hello AI',
     })
-    expect(chatApi.doChat).toHaveBeenCalled()
+    expect(chatApi.postCompletions).toHaveBeenCalled()
   })
 
   it('dispatches system message update when ChatSettings emits update-system-message', async () => {

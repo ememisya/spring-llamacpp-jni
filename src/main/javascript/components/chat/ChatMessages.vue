@@ -98,15 +98,12 @@
         rounded="lg"
       >
         <v-card-text class="text">
-          <v-progress-circular
-            indeterminate
-            size="16"
-            width="2"
-            color="primary"
-            class="mr-2"
-          ></v-progress-circular>
-
-          <span class="animate-pulse">{{ $t('aiIsTypingMessage') }}</span>
+          <span class="animate-pulse font-italic"
+            >{{ $t('aiIsTypingMessage')
+            }}<span class="typing-dots"
+              ><span>.</span><span>.</span><span>.</span></span
+            ></span
+          >
         </v-card-text>
       </v-card>
     </v-list-item>
@@ -114,7 +111,6 @@
 </template>
 
 <script setup lang="ts">
-  import { defineProps, defineEmits } from 'vue'
   import { ChatMessage } from '@/types'
 
   defineProps<{
@@ -209,6 +205,32 @@
 
     50% {
       opacity: 0.4;
+    }
+  }
+
+  .typing-dots span {
+    animation: blink 1.4s infinite both;
+  }
+
+  .typing-dots span:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+
+  .typing-dots span:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+
+  @keyframes blink {
+    0% {
+      opacity: 0.2;
+    }
+
+    20% {
+      opacity: 1;
+    }
+
+    100% {
+      opacity: 0.2;
     }
   }
 </style>
