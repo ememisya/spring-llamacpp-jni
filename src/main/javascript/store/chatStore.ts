@@ -15,7 +15,7 @@ export const ChatStore = {
     contextSize: 18432,
     batchSize: 4096,
     uBatchSize: 512,
-    requestPending: false,
+    requestPending: 0,
     dryAllowedLength: 2,
     dryBase: 1.75,
     dryMultiplier: 0.523,
@@ -67,7 +67,7 @@ export const ChatStore = {
       return state.dryAllowedLength
     },
 
-    requestPending(state: ChatState): boolean {
+    requestPending(state: ChatState): number {
       return state.requestPending
     },
 
@@ -113,10 +113,6 @@ export const ChatStore = {
 
     freqPenalty(state: ChatState): number {
       return state.freqPenalty
-    },
-
-    isRequestPending(state: ChatState): boolean {
-      return state.requestPending
     },
   },
 
@@ -356,7 +352,7 @@ export const ChatStore = {
       if (msg) msg.content = payload.content
     },
 
-    [T.SET_REQUEST_PENDING](state: ChatState, value: boolean): void {
+    [T.SET_REQUEST_PENDING](state: ChatState, value: number): void {
       state.requestPending = value
     },
 

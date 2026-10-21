@@ -6,6 +6,7 @@
         v-model="localSystemMessage"
         class="sidebar-textarea"
         :placeholder="$t('systemMessagePlaceholder')"
+        :disabled="disabled"
         @update:model-value="emitUpdate"
       />
     </v-card>
@@ -15,6 +16,7 @@
         v-model="localScratchPad"
         class="sidebar-textarea"
         :placeholder="$t('scratchPadPlaceholder')"
+        :disabled="disabled"
         @update:model-value="emitScratchPad"
       />
     </v-card>
@@ -29,6 +31,7 @@
           type="number"
           density="compact"
           class="sidebar-number-input"
+          :disabled="disabled"
           @update:model-value="emitDryAllowedLength"
         />
       </div>
@@ -41,6 +44,7 @@
           type="number"
           density="compact"
           class="sidebar-number-input"
+          :disabled="disabled"
           @update:model-value="emitDryBase"
         />
       </div>
@@ -53,6 +57,7 @@
           type="number"
           density="compact"
           class="sidebar-number-input"
+          :disabled="disabled"
           @update:model-value="emitDryMultiplier"
         />
       </div>
@@ -64,6 +69,7 @@
           type="number"
           density="compact"
           class="sidebar-number-input"
+          :disabled="disabled"
           @update:model-value="emitDryPenaltyLastN"
         />
       </div>
@@ -76,6 +82,7 @@
           type="number"
           density="compact"
           class="sidebar-number-input"
+          :disabled="disabled"
           @update:model-value="emitDynamicTemperature"
         />
       </div>
@@ -88,6 +95,7 @@
           type="number"
           density="compact"
           class="sidebar-number-input"
+          :disabled="disabled"
           @update:model-value="emitFreqPenalty"
         />
       </div>
@@ -100,6 +108,7 @@
           type="number"
           density="compact"
           class="sidebar-number-input"
+          :disabled="disabled"
           @update:model-value="emitMinP"
         />
       </div>
@@ -111,6 +120,7 @@
           type="number"
           density="compact"
           class="sidebar-number-input"
+          :disabled="disabled"
           @update:model-value="emitPenaltyLastN"
         />
       </div>
@@ -123,6 +133,7 @@
           type="number"
           density="compact"
           class="sidebar-number-input"
+          :disabled="disabled"
           @update:model-value="emitPresencePenalty"
         />
       </div>
@@ -135,6 +146,7 @@
           type="number"
           density="compact"
           class="sidebar-number-input"
+          :disabled="disabled"
           @update:model-value="emitRepeatPenalty"
         />
       </div>
@@ -146,6 +158,7 @@
           type="number"
           density="compact"
           class="sidebar-number-input"
+          :disabled="disabled"
           @update:model-value="emitRngSeed"
         />
       </div>
@@ -158,6 +171,7 @@
           type="number"
           density="compact"
           class="sidebar-number-input"
+          :disabled="disabled"
           @update:model-value="emitTemperature"
         />
       </div>
@@ -169,6 +183,7 @@
           type="number"
           density="compact"
           class="sidebar-number-input"
+          :disabled="disabled"
           @update:model-value="emitContextSize"
         />
       </div>
@@ -180,6 +195,7 @@
           type="number"
           density="compact"
           class="sidebar-number-input"
+          :disabled="disabled"
           @update:model-value="emitBatchSize"
         />
       </div>
@@ -191,6 +207,7 @@
           type="number"
           density="compact"
           class="sidebar-number-input"
+          :disabled="disabled"
           @update:model-value="emitUBatchSize"
         />
       </div>
@@ -199,29 +216,34 @@
 </template>
 
 <script setup lang="ts">
-  import { watch, defineProps, defineEmits } from 'vue'
+  import { watch } from 'vue'
 
-  const props = defineProps<{
-    systemMessage: string
-    scratchPad: string
-    chatCount: number
-    disabled: boolean
-    contextSize: number
-    batchSize: number
-    uBatchSize: number
-    dryAllowedLength: number
-    dryBase: number
-    dryMultiplier: number
-    dryPenaltyLastN: number
-    dynamicTemperature: number
-    freqPenalty: number
-    minP: number
-    penaltyLastN: number
-    presencePenalty: number
-    repeatPenalty: number
-    rngSeed: number
-    temperature: number
-  }>()
+  const props = withDefaults(
+    defineProps<{
+      systemMessage: string
+      scratchPad: string
+      chatCount: number
+      disabled?: boolean
+      contextSize: number
+      batchSize: number
+      uBatchSize: number
+      dryAllowedLength: number
+      dryBase: number
+      dryMultiplier: number
+      dryPenaltyLastN: number
+      dynamicTemperature: number
+      freqPenalty: number
+      minP: number
+      penaltyLastN: number
+      presencePenalty: number
+      repeatPenalty: number
+      rngSeed: number
+      temperature: number
+    }>(),
+    {
+      disabled: false,
+    },
+  )
 
   const emit = defineEmits<{
     (e: 'update-system-message', value: string): void

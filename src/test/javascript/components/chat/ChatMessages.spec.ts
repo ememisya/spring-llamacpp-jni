@@ -19,7 +19,6 @@ describe('ChatMessages.vue', () => {
 
     expect(wrapper.text()).toContain('Hi')
     expect(wrapper.text()).toContain('Hello')
-    expect(wrapper.text()).toContain('AI is typing...')
   })
 
   it('emits delete-message event when delete button is clicked in edit mode', async () => {

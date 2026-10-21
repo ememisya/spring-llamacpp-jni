@@ -34,8 +34,6 @@
 </template>
 
 <script setup lang="ts">
-  import { defineProps } from 'vue'
-
   defineProps<{
     editing: number[]
     messagesLength: number

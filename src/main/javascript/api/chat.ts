@@ -6,7 +6,7 @@ import type {
   ChatParamsLogIdentifierModel,
 } from '@/types'
 
-export function doChat(
+export function postCompletions(
   data: ChatParams,
   forceNewContext?: boolean,
 ): Promise<ApiResponse<string>> {
@@ -25,17 +25,15 @@ export function doChat(
   })
 }
 
-export function doGetTokenCount(
-  data: ChatParams,
-): Promise<ApiResponse<number>> {
+export function postTokenCount(data: ChatParams): Promise<ApiResponse<number>> {
   return request({
-    url: '/chat/get-token-count',
+    url: '/chat/token-count',
     method: 'post',
     data,
   })
 }
 
-export function doSaveChatParams(
+export function postChatParamsLog(
   data: ChatParams,
 ): Promise<ApiResponse<ChatParamsLog>> {
   return request({
@@ -45,14 +43,24 @@ export function doSaveChatParams(
   })
 }
 
-export function getLastChatParamsLog(): Promise<ApiResponse<ChatParamsLog>> {
+export function getModelsList(): Promise<ApiResponse<string[]>> {
   return request({
-    url: '/chat/last',
+    url: '/chat/models-list',
     method: 'get',
   })
 }
 
-export function doLoadChatParamsLog(
+export function postReloadModel(
+  modelIndex: number,
+): Promise<ApiResponse<void>> {
+  return request({
+    url: '/chat/reload-model',
+    method: 'post',
+    params: { modelIndex },
+  })
+}
+
+export function getChatParamsLog(
   id: number,
 ): Promise<ApiResponse<ChatParamsLog>> {
   return request({
@@ -62,7 +70,7 @@ export function doLoadChatParamsLog(
   })
 }
 
-export function doDeleteChatParamsLog(id: number): Promise<ApiResponse<void>> {
+export function deleteChatParamsLog(id: number): Promise<ApiResponse<void>> {
   return request({
     url: '/chat/chat-params-log',
     method: 'delete',

@@ -4,8 +4,10 @@ import com.ememisya.llamacpp.domain.ChatParams;
 import com.ememisya.llamacpp.jni.LlamaCpp;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
-import org.springframework.beans.factory.annotation.Value;
+import java.util.ArrayList;
+import java.util.List;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Service;
 
 /**
@@ -25,6 +27,7 @@ import org.springframework.stereotype.Service;
  */
 @Service
 @ConditionalOnProperty(name = "llama.enabled", havingValue = "true")
+@ConfigurationProperties(prefix = "llama")
 public class LlamaCppService {
 
     /**
@@ -45,14 +48,17 @@ public class LlamaCppService {
     /**
      * Filesystem path to the GGUF model file.
      */
-    @Value("${llama.model-path}")
-    private String modelPath;
+    private List<String> modelPath = new ArrayList<>();
 
     /**
-     * Number of GPU layers to offload (default: 999 = auto).
+     * Labels to the GGUF model file.
      */
-    @Value("${llama.gpu-layers:999}")
-    private int gpuLayers;
+    private List<String> modelLabel = new ArrayList<>();
+
+    /**
+     * Number of GPU layers to offload (999 = default auto).
+     */
+    private List<Integer> gpuLayers = new ArrayList<>();
 
     /**
      * Default constructor.
@@ -66,8 +72,18 @@ public class LlamaCppService {
      */
     @PostConstruct
     public void initializeBackendAndModel() {
+        if (modelPath.isEmpty()) {
+            throw new IllegalStateException(
+                    "You must specify at least one "
+                    + "llama.model-path in configuration");
+        }
+        if (modelPath.size() != gpuLayers.size()) {
+            throw new IllegalStateException(
+                    "llama.model-path in configuration must match "
+                    + "llama.gpu-layers size");
+        }
         llama.initBackend();
-        loadModel();
+        loadModel(0, 0);
     }
 
     /**
@@ -93,10 +109,21 @@ public class LlamaCppService {
      * through the JNI bridge. If a model is already loaded, this method does
      * nothing.
      * </p>
+     *
+     * @param modelIndex which model to load
+     * @param gpuLayersIndex how many layers to offload to GPU
      */
-    public void loadModel() {
+    public void loadModel(final int modelIndex, final int gpuLayersIndex) {
+        if (modelIndex < 0 || modelIndex >= modelPath.size()) {
+            throw new IllegalArgumentException("modelIndex is out of bounds");
+        }
+        if (gpuLayersIndex < 0 || gpuLayersIndex >= gpuLayers.size()) {
+            throw new IllegalArgumentException(
+                    "gpuLayersIndex is out of bounds");
+        }
         if (modelPtr == 0) {
-            modelPtr = llama.loadModel(modelPath, gpuLayers);
+            modelPtr = llama.loadModel(
+                    modelPath.get(modelIndex), gpuLayers.get(gpuLayersIndex));
         }
     }
 
@@ -162,6 +189,60 @@ public class LlamaCppService {
     }
 
     /**
+     * Sets the list of filesystem paths to the GGUF model files.
+     *
+     * @param modelPath list of model file paths
+     */
+    public void setModelPath(final List<String> modelPath) {
+        this.modelPath = modelPath;
+    }
+
+    /**
+     * Gets the list of model file paths.
+     *
+     * @return list of model file paths
+     */
+    public List<String> getModelPath() {
+        return modelPath;
+    }
+
+    /**
+     * Sets the list of labels to the GGUF model files.
+     *
+     * @param modelLabel list of model labels
+     */
+    public void setModelLabel(final List<String> modelLabel) {
+        this.modelLabel = modelLabel;
+    }
+
+    /**
+     * Gets the list of model labels.
+     *
+     * @return list of model labels
+     */
+    public List<String> getModelLabel() {
+        return modelLabel;
+    }
+
+    /**
+     * Sets the number of GPU layers to offload.
+     *
+     * @param gpuLayers number of layers
+     */
+    public void setGpuLayers(final List<Integer> gpuLayers) {
+        this.gpuLayers = gpuLayers;
+    }
+
+    /**
+     * Gets the number of GPU layers to offload.
+     *
+     * @return number of GPU layers
+     */
+    public List<Integer> getGpuLayers() {
+        return gpuLayers;
+    }
+
+    /**
      * Frees the active llama.cpp context if one exists. Safe to call multiple
      * times.
      */
@@ -180,9 +261,7 @@ public class LlamaCppService {
     @PreDestroy
     public void shutdown() {
         freeContext();
-
         freeModel();
-
         llama.freeBackend();
     }
 }

@@ -3,8 +3,15 @@ server:
 
 llama:
   enabled: true
-  model-path: '/your-model.gguf'
-  gpu-layers: 20
+  model-path:
+      - '/your_model_001.gguf'
+      - '/your_model_002.gguf'
+  gpu-layers:
+      - 16
+      - 30
+  model-label:
+      - My Model
+      - Stheno
 
 spring:
   jackson:

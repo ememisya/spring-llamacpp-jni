@@ -18,6 +18,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -151,6 +153,45 @@ class ChatControllerTest {
                 .andExpect(status().isOk());
 
         verify(chatParamsLogRepository).delete(log);
+    }
+
+    /**
+     * Tests reloading the model.
+     *
+     * @throws Exception if perform operation fails
+     */
+    @Test
+    @DisplayName("POST /v1/chat/reload-model - Success")
+    void testReloadModel() throws Exception {
+        doNothing().when(llamaCppService).freeModel();
+        doNothing().when(llamaCppService).loadModel(any(Integer.class), any(Integer.class));
+
+        mockMvc.perform(post("/v1/chat/reload-model")
+                .param("modelIndex", "0"))
+                .andExpect(status().isOk());
+
+        verify(llamaCppService).freeModel();
+        verify(llamaCppService).loadModel(0, 0);
+    }
+
+    /**
+     * Tests getting the models list.
+     *
+     * @throws Exception if perform operation fails
+     */
+    @Test
+    @DisplayName("GET /v1/chat/models-list - Success")
+    void testGetModelsList() throws Exception {
+        List<String> modelPaths = Arrays.asList("path/to/model1", "path/to/model2");
+        List<String> modelLabels = Arrays.asList("Model One");
+
+        when(llamaCppService.getModelPath()).thenReturn(modelPaths);
+        when(llamaCppService.getModelLabel()).thenReturn(modelLabels);
+
+        mockMvc.perform(get("/v1/chat/models-list"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0]").value("Model One"))
+                .andExpect(jsonPath("$[1]").value("#1"));
     }
 
     /**

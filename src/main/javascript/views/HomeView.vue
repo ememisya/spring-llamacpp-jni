@@ -3,11 +3,11 @@
     <TopBar
       :chat-params-log-identifier-map="chatParamsLogIdentifierMap"
       @toggle-drawer="toggleDrawer"
-      @get-chat-params-log="getChatParamsLog"
-      @post-chat-params-log="postChatParamsLog"
+      @get-chat-params-log="doGetChatParamsLog"
+      @post-chat-params-log="doPostChatParamsLog"
       @clear-chat="clearChat"
-      @get-chat-params-logs="getChatParamsLogs"
-      @delete-chat-params-log="deleteChatParamsLog"
+      @get-chat-params-logs="doGetChatParamsLogs"
+      @delete-chat-params-log="doDeleteChatParamsLog"
     />
 
     <SideDrawer :drawer="drawer" @update-drawer="updateDrawer">
@@ -16,7 +16,6 @@
           :system-message="systemMessage"
           :scratch-pad="scratchPad"
           :chat-count="chatCount"
-          :disabled="requestPending"
           :context-size="contextSize"
           :batch-size="batchSize"
           :u-batch-size="uBatchSize"
@@ -50,13 +49,18 @@
           @update-temperature="updateTemperature"
           @update-system-message="updateSystemMessage"
         />
+        <ChatLoadModel
+          :disabled="requestPending > 0"
+          :models-list="modelsList"
+          @model-selected="reloadModel"
+        ></ChatLoadModel>
       </template>
     </SideDrawer>
 
     <ChatMessages
       :messages="messages"
       :editing="editing"
-      :typing="requestPending"
+      :typing="requestPending == 1"
       @edit-message="editMessage"
       @delete-message="deleteMessage"
       @update-message-content="updateMessageContent"
@@ -70,7 +74,10 @@
         :editing="editing"
       >
         <template #prepend>
-          <ChatInput :disabled="requestPending" @send-message="sendMessage" />
+          <ChatInput
+            :disabled="requestPending > 0"
+            @send-message="sendMessage"
+          />
         </template>
         <template #append>
           <label
@@ -86,7 +93,7 @@
 </template>
 
 <script setup lang="ts">
-  import { ref, computed, onMounted } from 'vue'
+  import { ref, computed, onMounted, watch } from 'vue'
   import { useStore } from 'vuex'
   import { showSnackbar } from '@/composables/useSnackbar'
   import { key } from '@/store'
@@ -104,6 +111,7 @@
   import SideDrawer from '@/components/layout/SideDrawer.vue'
 
   import ChatSettings from '@/components/chat/settings/ChatSettings.vue'
+  import ChatLoadModel from '@/components/chat/settings/ChatLoadModel.vue'
 
   import ChatBottom from '@/components/chat/ChatBottom.vue'
   import ChatInput from '@/components/chat/ChatInput.vue'
@@ -111,12 +119,14 @@
 
   import * as T from '@/store/chat.types'
   import {
-    doChat,
-    doGetTokenCount,
-    doLoadChatParamsLog,
-    doSaveChatParams,
-    doDeleteChatParamsLog,
+    postCompletions,
+    postTokenCount,
+    postChatParamsLog,
+    getChatParamsLog,
+    deleteChatParamsLog,
+    postReloadModel,
     getChatParamsLogIdentifiers,
+    getModelsList,
   } from '@/api/chat'
   import { scrollToBottom, playBeep } from '@/composables'
 
@@ -129,9 +139,16 @@
   const editing = ref<number[]>([false])
   const drawer = ref(false)
 
-  const forceNewContext = ref(false)
+  const forceNewContext = ref(
+    localStorage.getItem('forceNewContext') === 'true',
+  )
+
+  watch(forceNewContext, (newValue) => {
+    localStorage.setItem('forceNewContext', String(newValue))
+  })
 
   const tokenCount = ref(0)
+  const modelsList = ref<string>([])
 
   // Derived state
   const requestPending = computed(() => store.getters.requestPending)
@@ -160,7 +177,12 @@
 
   onMounted(async () => {
     updateTokenCount()
+    modelsList.value = await getModelsList()
   })
+
+  function generateUniqueId(): number {
+    return -1 * Math.abs(Date.now() + Math.floor(Math.random() * 1000000))
+  }
 
   function constructRequest(): ChatParams {
     const generatedSystemMessage: ChatMessage = {
@@ -268,10 +290,24 @@
     store.dispatch(T.SET_TEMPERATURE_ACTION, value)
   }
 
+  async function reloadModel(value: number) {
+    store.dispatch(T.SET_REQUEST_PENDING_ACTION, 2)
+    try {
+      await postReloadModel(value)
+      showSnackbar(t('loadedModelMessage'), 'success', 2500)
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        showSnackbar(error?.message, 'warning', 2500)
+      }
+    } finally {
+      store.dispatch(T.SET_REQUEST_PENDING_ACTION, 0)
+    }
+  }
+
   // Chat message operations
   async function sendMessage(text: string) {
     store.dispatch(T.ADD_MESSAGE_ACTION, {
-      id: -1 * Math.floor(Math.random() * 65000) + 1,
+      id: generateUniqueId(),
       role: 'user',
       content: text,
     })
@@ -312,7 +348,7 @@
 
   async function updateTokenCount() {
     try {
-      tokenCount.value = await doGetTokenCount(constructRequest())
+      tokenCount.value = await postTokenCount(constructRequest())
     } catch (error: unknown) {
       if (error instanceof Error) {
         tokenCount.value = -1
@@ -320,15 +356,15 @@
     }
   }
 
-  async function getChatParamsLog(id: number) {
-    const data: ChatParamsLog = await doLoadChatParamsLog(id)
+  async function doGetChatParamsLog(id: number) {
+    const data: ChatParamsLog = await getChatParamsLog(id)
     store.dispatch(T.SET_STATE_FROM_REQUEST_ACTION, data.chatParams)
     updateTokenCount()
     showSnackbar(t('loadedStateMessage'), 'success', 2500)
   }
 
-  async function deleteChatParamsLog(id: number) {
-    await doDeleteChatParamsLog(id)
+  async function doDeleteChatParamsLog(id: number) {
+    await deleteChatParamsLog(id)
     for (const [, logArray] of chatParamsLogIdentifierMap.value.entries()) {
       const index = logArray.findIndex((item) => item.id === id)
       if (index !== -1) {
@@ -338,16 +374,16 @@
     }
   }
 
-  async function postChatParamsLog() {
+  async function doPostChatParamsLog() {
     const chatParamsLog: ChatParamsLog =
-      await doSaveChatParams(constructRequest())
+      await postChatParamsLog(constructRequest())
     chatParamsLogIdentifierMap.value
       .get(new Date().getFullYear())
       ?.push(chatParamsLog)
     showSnackbar(t('savedStateMessage'), 'success', 2500)
   }
 
-  async function getChatParamsLogs(year: number) {
+  async function doGetChatParamsLogs(year: number) {
     if (!chatParamsLogIdentifierMap.value.has(year)) {
       const currentYear = await getChatParamsLogIdentifiers(year)
       chatParamsLogIdentifierMap.value.set(year, currentYear)
@@ -364,9 +400,12 @@
     store.dispatch(T.SET_REQUEST_PENDING_ACTION, true)
 
     try {
-      const response = await doChat(constructRequest(), forceNewContext.value)
+      const response = await postCompletions(
+        constructRequest(),
+        forceNewContext.value,
+      )
       store.dispatch(T.ADD_MESSAGE_ACTION, {
-        id: -1 * Math.floor(Math.random() * 65000) + 1,
+        id: generateUniqueId(),
         role: 'assistant',
         content: response,
       })

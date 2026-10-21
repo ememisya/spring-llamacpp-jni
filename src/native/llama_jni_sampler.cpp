@@ -86,7 +86,7 @@ static llama_sampler * create_ban_sampler(
     // ---------------------------------------------------------------------
 
     for (int id = 0; id < vocab_size; id++) {
-        const char * text = llama_token_get_text(vocab, id);
+        const char * text = llama_vocab_get_text(vocab, id);
         if (!is_printable(std::string(text))) {
             biases.push_back({ id, -15.0f });
         }
