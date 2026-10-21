@@ -14,7 +14,8 @@ export const localStoragePlugin = (store: Store<ChatState>) => {
   }
 
   store.subscribe((mutation, state) => {
-    const { requestPending, ...stateToSave } = state
+    const stateToSave = { ...state } as Partial<typeof state>
+    delete stateToSave.requestPending
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave))
   })
 }
