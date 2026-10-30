@@ -127,10 +127,6 @@ if (NOT MSVC)
     endif()
 endif()
 
-if (MINGW)
-    add_compile_definitions(_WIN32_WINNT=${GGML_WIN_VER})
-endif()
-
 #
 # POSIX conformance
 #
@@ -204,6 +200,7 @@ add_library(ggml-base
             ggml.cpp
             ggml-alloc.c
             ggml-backend.cpp
+            ggml-backend-meta.cpp
             ggml-opt.cpp
             ggml-threading.cpp
             ggml-threading.h
@@ -216,7 +213,9 @@ set_target_properties(ggml-base PROPERTIES
     SOVERSION ${GGML_VERSION_MAJOR}
 )
 
-target_include_directories(ggml-base PRIVATE .)
+configure_file(ggml-version.h.in ${CMAKE_CURRENT_BINARY_DIR}/ggml-version.h @ONLY)
+
+target_include_directories(ggml-base PRIVATE . ${CMAKE_CURRENT_BINARY_DIR})
 if (GGML_BACKEND_DL)
     target_compile_definitions(ggml-base PUBLIC GGML_BACKEND_DL)
 endif()
@@ -226,6 +225,7 @@ if (GGML_SCHED_NO_REALLOC)
 endif()
 
 add_library(ggml
+            ggml-backend-dl.cpp
             ggml-backend-reg.cpp)
 add_library(ggml::ggml ALIAS ggml)
 
@@ -331,6 +331,8 @@ function(ggml_add_cpu_backend_variant tag_name)
             set(GGML_INTERNAL_${feat} ON)
         endforeach()
     elseif (GGML_SYSTEM_ARCH STREQUAL "s390x")
+        set(GGML_NATIVE OFF)
+
         foreach (feat VXE2 NNPA)
             set(GGML_INTERNAL_${feat} OFF)
         endforeach()
@@ -361,15 +363,11 @@ if (GGML_CPU_ALL_VARIANTS)
     endif()
     if (GGML_SYSTEM_ARCH STREQUAL "x86")
         ggml_add_cpu_backend_variant(x64)
-        ggml_add_cpu_backend_variant(sse42        SSE42)
-        ggml_add_cpu_backend_variant(sandybridge  SSE42 AVX)
-        ggml_add_cpu_backend_variant(haswell      SSE42 AVX F16C AVX2 BMI2 FMA)
-        ggml_add_cpu_backend_variant(skylakex     SSE42 AVX F16C AVX2 BMI2 FMA AVX512)
-        ggml_add_cpu_backend_variant(icelake      SSE42 AVX F16C AVX2 BMI2 FMA AVX512 AVX512_VBMI AVX512_VNNI)
-        ggml_add_cpu_backend_variant(alderlake    SSE42 AVX F16C AVX2 BMI2 FMA AVX_VNNI)
+        ggml_add_cpu_backend_variant(sse42              SSE42)
+        ggml_add_cpu_backend_variant(sandybridge        SSE42 AVX)
         if (NOT MSVC)
             # MSVC doesn't support AMX
-            ggml_add_cpu_backend_variant(sapphirerapids SSE42 AVX F16C AVX2 BMI2 FMA AVX512 AVX512_VBMI AVX512_VNNI AVX512_BF16 AMX_TILE AMX_INT8)
+            ggml_add_cpu_backend_variant(sapphirerapids SSE42 AVX F16C FMA AVX2 BMI2 AVX512 AVX512_VBMI AVX512_VNNI AVX512_BF16 AMX_TILE AMX_INT8)
         endif()
     elseif(GGML_SYSTEM_ARCH STREQUAL "ARM")
         if (CMAKE_SYSTEM_NAME MATCHES "Linux")
@@ -390,6 +388,9 @@ if (GGML_CPU_ALL_VARIANTS)
             ggml_add_cpu_backend_variant(android_armv8.2_1    DOTPROD)
             ggml_add_cpu_backend_variant(android_armv8.2_2    DOTPROD FP16_VECTOR_ARITHMETIC)
             ggml_add_cpu_backend_variant(android_armv8.6_1    DOTPROD FP16_VECTOR_ARITHMETIC MATMUL_INT8)
+            ggml_add_cpu_backend_variant(android_armv9.0_1    DOTPROD MATMUL_INT8 FP16_VECTOR_ARITHMETIC SVE2)
+            ggml_add_cpu_backend_variant(android_armv9.2_1    DOTPROD MATMUL_INT8 FP16_VECTOR_ARITHMETIC SVE SME)
+            ggml_add_cpu_backend_variant(android_armv9.2_2    DOTPROD MATMUL_INT8 FP16_VECTOR_ARITHMETIC SVE SVE2 SME)
         elseif (APPLE)
             ggml_add_cpu_backend_variant(apple_m1             DOTPROD)
             ggml_add_cpu_backend_variant(apple_m2_m3          DOTPROD MATMUL_INT8)
@@ -398,7 +399,7 @@ if (GGML_CPU_ALL_VARIANTS)
             message(FATAL_ERROR "Unsupported ARM target OS: ${CMAKE_SYSTEM_NAME}")
         endif()
     elseif (GGML_SYSTEM_ARCH STREQUAL "PowerPC")
-        if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+        if (CMAKE_SYSTEM_NAME MATCHES "Linux|AIX")
             ggml_add_cpu_backend_variant(power0)
             ggml_add_cpu_backend_variant(power7_1       POWER7)
             ggml_add_cpu_backend_variant(power7_2       POWER7  VSX)
@@ -406,7 +407,14 @@ if (GGML_CPU_ALL_VARIANTS)
             ggml_add_cpu_backend_variant(power8_2       POWER8  VSX)
             ggml_add_cpu_backend_variant(power9         POWER9  VSX)
             ggml_add_cpu_backend_variant(power10        POWER10 VSX)
-            ggml_add_cpu_backend_variant(power11        POWER11 VSX)
+            # POWER11 backend: only if compiler supports -mcpu=power11
+            check_cxx_compiler_flag("-mcpu=power11" GGML_CXX_SUPPORTS_POWER11)
+            if (GGML_CXX_SUPPORTS_POWER11)
+                message(STATUS "Compiler supports -mcpu=power11, enabling POWER11 backend")
+                ggml_add_cpu_backend_variant(power11 POWER11 VSX)
+            else()
+                message(STATUS "Skipping POWER11 backend: compiler does not support -mcpu=power11")
+            endif()
         else()
             message(FATAL_ERROR "Unsupported PowerPC target OS: ${CMAKE_SYSTEM_NAME}")
         endif()
@@ -414,6 +422,14 @@ if (GGML_CPU_ALL_VARIANTS)
         if (CMAKE_SYSTEM_NAME MATCHES "Linux")
             ggml_add_cpu_backend_variant(z15    Z15 VXE2)
             ggml_add_cpu_backend_variant(z16    Z16 VXE2 NNPA)
+
+            # check if compiler supports "-march=z17" codename
+            check_cxx_compiler_flag("-march=arch15" GGML_CXX_SUPPORTS_Z17)
+            if (GGML_CXX_SUPPORTS_Z17)
+                ggml_add_cpu_backend_variant(arch15 Z17 VXE2 NNPA)
+            else()
+                message(WARNING "Skipping z17 target: compiler must be GCC 15.1 and later")
+            endif()
         else()
             message(FATAL_ERROR "Unsupported s390x target OS: ${CMAKE_SYSTEM_NAME}")
         endif()
@@ -440,11 +456,10 @@ endforeach()
 
 target_link_libraries(ggml-base PRIVATE Threads::Threads)
 
-find_library(MATH_LIBRARY m)
-if (MATH_LIBRARY)
-    if (NOT WIN32 OR NOT DEFINED ENV{ONEAPI_ROOT})
-        target_link_libraries(ggml-base PRIVATE m)
-    endif()
+if (DEFINED MATH_LIBRARY)
+    target_link_libraries(ggml-base PRIVATE ${MATH_LIBRARY})
+elseif (NOT WIN32 AND NOT DEFINED ENV{ONEAPI_ROOT})
+    target_link_libraries(ggml-base PRIVATE m)
 endif()
 
 if (CMAKE_SYSTEM_NAME MATCHES "Android")
@@ -457,7 +472,11 @@ endif()
 
 if (BUILD_SHARED_LIBS)
     foreach (target ggml-base ggml)
-        set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+        set_target_properties(${target} PROPERTIES
+            POSITION_INDEPENDENT_CODE ON
+            C_VISIBILITY_PRESET hidden
+            CXX_VISIBILITY_PRESET hidden
+        )
         target_compile_definitions(${target} PRIVATE GGML_BUILD)
         target_compile_definitions(${target} PUBLIC  GGML_SHARED)
     endforeach()

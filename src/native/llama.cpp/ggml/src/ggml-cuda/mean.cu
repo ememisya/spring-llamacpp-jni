@@ -18,7 +18,7 @@ void ggml_cuda_op_mean(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
 
     GGML_ASSERT(src0->type == GGML_TYPE_F32);
     GGML_ASSERT(dst->type == GGML_TYPE_F32);
-    GGML_ASSERT(ggml_is_contiguous(src0));
+    GGML_ASSERT(ggml_is_contiguous_rows(src0));
 
     const int64_t ncols = src0->ne[0];
     const int64_t nrows = ggml_nrows(src0);
@@ -31,16 +31,15 @@ void ggml_cuda_op_mean(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
 #endif // USE_CUDA_GRAPH
     if ((nrows == 1) &&
 #ifdef USE_CUDA_GRAPH
-            // CUDA_GRAPHS_DISABLED
-            ((ncols > 65536) &&
-             ((ctx.cuda_graph->instance == nullptr) && (iscapturing == cudaStreamCaptureStatusNone) ||
-              ctx.cuda_graph->disable_due_to_gpu_arch || ctx.cuda_graph->disable_due_to_too_many_updates ||
-              ctx.cuda_graph->disable_due_to_failed_graph_capture)) ||
-        // CUDA_GRAPHS ENABLED
-        ((ncols > 32768) &&
-         !((ctx.cuda_graph->instance == nullptr) && (iscapturing == cudaStreamCaptureStatusNone) ||
-           ctx.cuda_graph->disable_due_to_gpu_arch || ctx.cuda_graph->disable_due_to_too_many_updates ||
-           ctx.cuda_graph->disable_due_to_failed_graph_capture))) {
+            // Determine if CUDA graphs are effectively disabled for this context
+            // (no graph instance exists and we're not capturing, OR graphs are explicitly enabled)
+            (((ncols > 65536) &&
+              (((!ctx.any_cuda_graph_has_instance()) && (iscapturing == cudaStreamCaptureStatusNone)) ||
+               ctx.any_cuda_graph_enabled())) ||
+            // CUDA graphs are enabled - use lower threshold
+             ((ncols > 32768) &&
+              !(((!ctx.any_cuda_graph_has_instance()) && (iscapturing == cudaStreamCaptureStatusNone)) ||
+                ctx.any_cuda_graph_enabled())))) {
 #else
         (ncols > 65536)) {
 #endif // USE_CUDA_GRAPH
@@ -63,11 +62,23 @@ void ggml_cuda_op_mean(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
 
     const int id  = ggml_cuda_get_device();
     const int nsm = ggml_cuda_info().devices[id].nsm;
+
+    // Heuristic for block size selection to optimize occupancy.
+    // See discussion in: https://github.com/ggml-org/llama.cpp/pull/15132
+    dim3 block_dims;
     if ((nrows / nsm) < 2) {
-        const dim3 block_dims(512, 1, 1);
-        reduce_rows_f32</*norm=*/true><<<block_nums, block_dims, 0, stream>>>(src0_d, dst_d, ncols);
+        block_dims = dim3(512, 1, 1);
     } else {
-        const dim3 block_dims(ncols < 1024 ? 32 : 128, 1, 1);
-        reduce_rows_f32</*norm=*/true><<<block_nums, block_dims, 0, stream>>>(src0_d, dst_d, ncols);
+        block_dims = dim3(ncols < 1024 ? 32 : 128, 1, 1);
     }
+    const ggml_cuda_kernel_launch_params launch_params = ggml_cuda_kernel_launch_params(block_nums, block_dims, 0, stream);
+
+    if (ggml_is_contiguous(src0)) {
+        ggml_cuda_kernel_launch(reduce_rows_f32</*norm=*/true>, launch_params, src0_d, dst_d, ncols);
+        return;
+    }
+
+    const char * src0_d_bytes = (const char *) src0->data;
+    ggml_cuda_kernel_launch(reduce_rows_f32_strided</*norm=*/true>, launch_params, src0_d_bytes, dst_d, ncols,
+            src0->ne[1], src0->ne[2], src0->nb[1], src0->nb[2], src0->nb[3]);
 }

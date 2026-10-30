@@ -1,5 +1,18 @@
 cmake_minimum_required(VERSION 3.18)  # for CMAKE_CUDA_ARCHITECTURES
 
+# ARM64EC uses the x64 ABI, so it needs the x64 import libraries. The arm64 ones
+# hold native ARM64 symbols and cannot satisfy EC references at link time.
+# FindCUDAToolkit picks the library dir from the host arch, not the target, so
+# anchor its search at lib/x64 here. It derives everything else from CUDA_CUDART.
+string(TOLOWER "${CMAKE_GENERATOR_PLATFORM}" GGML_CUDA_PLATFORM_LWR)
+if (MSVC AND GGML_CUDA_PLATFORM_LWR STREQUAL "arm64ec")
+    find_library(CUDA_CUDART
+        NAMES cudart
+        HINTS ${CUDAToolkit_ROOT} ENV CUDA_PATH
+        PATH_SUFFIXES lib/x64
+    )
+endif()
+
 find_package(CUDAToolkit)
 
 if (CUDAToolkit_FOUND)
@@ -15,6 +28,8 @@ if (CUDAToolkit_FOUND)
         # 80     == Ampere, asynchronous data loading, faster tensor core instructions
         # 86     == RTX 3000, needs CUDA v11.1
         # 89     == RTX 4000, needs CUDA v11.8
+        # 90     == Hopper H100/200, needs CUDA v11.8
+        # 120    == Blackwell, needs CUDA v12.8, FP4 tensor cores
         #
         # XX-virtual == compile CUDA code as PTX, do JIT compilation to binary code on first run
         # XX-real    == compile CUDA code as device code for this specific architecture
@@ -32,13 +47,69 @@ if (CUDAToolkit_FOUND)
             list(APPEND CMAKE_CUDA_ARCHITECTURES 75-virtual 80-virtual 86-real)
 
             if (CUDAToolkit_VERSION VERSION_GREATER_EQUAL "11.8")
-                list(APPEND CMAKE_CUDA_ARCHITECTURES 89-real)
+                list(APPEND CMAKE_CUDA_ARCHITECTURES 89-real 90-virtual)
+            endif()
+
+            if (CUDAToolkit_VERSION VERSION_GREATER_EQUAL "12.8")
+                # The CUDA architecture 120f-virtual would in principle work for Blackwell support
+                #     but the newly added "f" suffix conflicted with a preexising regex for validating CUDA architectures in CMake.
+                # So either a recent CMake version or one with the backported fix is needed.
+                # The following versions should work:
+                #   - CMake >= v3.31.8 && CMake < v4.0.0
+                #   - CMake >= v4.0.2
+                # This is NOT documented in the CMake release notes,
+                #     check Modules/Internal/CMakeCUDAArchitecturesValidate.cmake in the CMake git repository instead.
+                # However, the architectures 120a-real and 121a-real should work with basically any CMake version and
+                #     until the release of e.g. Rubin there is no benefit to shipping virtual architectures for Blackwell.
+                list(APPEND CMAKE_CUDA_ARCHITECTURES 120a-real)
+            endif()
+            if (CUDAToolkit_VERSION VERSION_GREATER_EQUAL "12.9")
+                list(APPEND CMAKE_CUDA_ARCHITECTURES 121a-real)
             endif()
         endif()
     endif()
-    message(STATUS "Using CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
 
     enable_language(CUDA)
+
+    if (GGML_CUDA_CCCL_VERSION)
+        include(FetchContent)
+
+        FetchContent_Declare(
+            CCCL
+            GIT_REPOSITORY https://github.com/nvidia/cccl.git
+            GIT_TAG        "${GGML_CUDA_CCCL_VERSION}"
+            GIT_SHALLOW    TRUE
+        )
+
+        FetchContent_MakeAvailable(CCCL)
+    endif()
+
+    # Replace any plain 12X CUDA architectures with their "architecture-specific" equivalents 12Xa.
+    # 12X is forwards-compatible, 12Xa is not.
+    # Notably the Blackwell FP4 tensor core instructions are not forwards compatible and therefore need 12Xa.
+    # But while 12X vs. 12Xa can be checked in device code there is (to my knowledge) no easy way to do the same check in host code.
+    # So for now just replace all instances of 12X with 12Xa, this should be fine until Rubin is released.
+    foreach(ARCHS IN ITEMS CMAKE_CUDA_ARCHITECTURES CMAKE_CUDA_ARCHITECTURES_NATIVE)
+        set(FIXED_ARCHS "")
+        foreach(ARCH IN LISTS ${ARCHS})
+            if (ARCH MATCHES "^12[0-9](-real|-virtual)?$")
+                string(REGEX REPLACE "^(12[0-9])((-real|-virtual)?)$" "\\1a\\2" FIXED_ARCH ${ARCH})
+                message(STATUS "Replacing ${ARCH} in ${ARCHS} with ${FIXED_ARCH}")
+                list(APPEND FIXED_ARCHS "${FIXED_ARCH}")
+            else()
+                list(APPEND FIXED_ARCHS "${ARCH}")
+            endif()
+        endforeach()
+        set(${ARCHS} ${FIXED_ARCHS})
+    endforeach()
+
+    # If we try to compile a "native" build it will use the 12X architectures and fail.
+    # So we should instead use the native architectures as determined by CMake after replacing 12X with 12Xa.
+    # But if at the time of the build no GPUs are connected at all CMAKE_CUDA_ARCHITECTURES will contain garbage that we should not use.
+    if (CMAKE_CUDA_ARCHITECTURES STREQUAL "native" AND CMAKE_CUDA_ARCHITECTURES_NATIVE MATCHES "^[0-9]+(a|f)?(-real|-virtual)?(;[0-9]+(a|f)?(-real|-virtual)?|;)*$")
+        set(CMAKE_CUDA_ARCHITECTURES ${CMAKE_CUDA_ARCHITECTURES_NATIVE})
+    endif()
+    message(STATUS "Using CMAKE_CUDA_ARCHITECTURES=${CMAKE_CUDA_ARCHITECTURES} CMAKE_CUDA_ARCHITECTURES_NATIVE=${CMAKE_CUDA_ARCHITECTURES_NATIVE}")
 
     file(GLOB   GGML_HEADERS_CUDA "*.cuh")
     list(APPEND GGML_HEADERS_CUDA "../../include/ggml-cuda.h")
@@ -53,25 +124,13 @@ if (CUDAToolkit_FOUND)
     file(GLOB   SRCS "template-instances/mmf*.cu")
     list(APPEND GGML_SOURCES_CUDA ${SRCS})
 
-    if (GGML_CUDA_FA_ALL_QUANTS)
-        file(GLOB   SRCS "template-instances/fattn-vec*.cu")
-        list(APPEND GGML_SOURCES_CUDA ${SRCS})
-        add_compile_definitions(GGML_CUDA_FA_ALL_QUANTS)
-    else()
-        file(GLOB   SRCS "template-instances/fattn-vec*q4_0-q4_0.cu")
-        list(APPEND GGML_SOURCES_CUDA ${SRCS})
-        file(GLOB   SRCS "template-instances/fattn-vec*q8_0-q8_0.cu")
-        list(APPEND GGML_SOURCES_CUDA ${SRCS})
-        file(GLOB   SRCS "template-instances/fattn-vec*f16-f16.cu")
-        list(APPEND GGML_SOURCES_CUDA ${SRCS})
-    endif()
+    ggml_cuda_fattn_vec_instances(${CMAKE_CURRENT_SOURCE_DIR} SRCS)
+    list(APPEND GGML_SOURCES_CUDA ${SRCS})
 
     ggml_add_backend_library(ggml-cuda
                              ${GGML_HEADERS_CUDA}
                              ${GGML_SOURCES_CUDA}
                             )
-
-    add_compile_definitions(GGML_CUDA_PEER_MAX_BATCH_SIZE=${GGML_CUDA_PEER_MAX_BATCH_SIZE})
 
     if (GGML_CUDA_GRAPHS)
         add_compile_definitions(GGML_CUDA_USE_GRAPHS)
@@ -97,6 +156,10 @@ if (CUDAToolkit_FOUND)
         add_compile_definitions(GGML_CUDA_NO_PEER_COPY)
     endif()
 
+    if (GGML_CUDA_CCCL_VERSION)
+        target_link_libraries(ggml-cuda PRIVATE CCCL::CCCL)
+    endif()
+
     if (GGML_STATIC)
         if (WIN32)
             # As of 12.3.1 CUDA Toolkit for Windows does not offer a static cublas library
@@ -116,6 +179,16 @@ if (CUDAToolkit_FOUND)
         # No VMM requested, no need to link directly with the cuda driver lib (libcuda.so)
     else()
         target_link_libraries(ggml-cuda PRIVATE CUDA::cuda_driver)
+    endif()
+
+    if (GGML_CUDA_NCCL)
+        find_package(NCCL)
+        if (NCCL_FOUND)
+            add_compile_definitions(GGML_USE_NCCL)
+            target_link_libraries(ggml-cuda PRIVATE NCCL::NCCL)
+        else()
+            message(STATUS "Warning: NCCL not found, performance for multiple CUDA GPUs will be suboptimal")
+        endif()
     endif()
 
     set(CUDA_CXX_FLAGS "")
@@ -177,6 +250,10 @@ if (CUDAToolkit_FOUND)
 
     if (NOT MSVC)
         list(APPEND CUDA_CXX_FLAGS -Wno-pedantic)
+    else()
+        # CCCL 3.2 onwards will require a cpp-standard-compliant preprocessor for MSVC
+        # https://github.com/NVIDIA/cccl/pull/6827
+        list(APPEND CUDA_CXX_FLAGS /Zc:preprocessor)
     endif()
 
     list(JOIN   CUDA_CXX_FLAGS " " CUDA_CXX_FLAGS_JOINED)  # pass host compiler flags as a single argument
