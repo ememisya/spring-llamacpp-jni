@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project name="node-tasks" default="execute-npm-install" xmlns:unless="ant:unless">
-    <target name="execute-npm-install">
+    <!-- Evaluate if either property is true -->
+    <target name="check-skip-tests">
+        <condition property="skip.tests">
+            <or>
+                <istrue value="${skipFrontend}"/>
+                <istrue value="${skipTests}"/> 
+            </or>
+        </condition>
+    </target>
+    <target name="execute-npm-install" unless="${skipFrontend}">
         <available file="${project.basedir}/node_modules" 
                    type="dir" 
                    property="nodeModules.present"/>
@@ -11,7 +20,7 @@
             <arg value="install" />
         </exec>
     </target>
-    <target name="run-vite-unit-tests">
+    <target name="run-vite-unit-tests" depends="check-skip-tests" unless="skip.tests">
         <echo message="Running front-end tests..." />
         <exec dir="${project.basedir}"
               executable="npm" 
@@ -20,7 +29,7 @@
             <arg value="test:unit" />
         </exec>
     </target>
-    <target name="clean">
+    <target name="clean" unless="${skipFrontend}">
         <echo message="Cleaning front-end node_modules..." />
         <delete dir="${project.basedir}/node_modules" quiet="true" failonerror="false" />
         <delete file="${project.basedir}/package-lock.json" quiet="true" failonerror="false" />    

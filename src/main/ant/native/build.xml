@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project name="node-tasks" default="compile-llama-cpp" xmlns:unless="ant:unless">
-    <target name="clean">
+    <target name="clean" if="${all}">
         <echo message="Cleaning native llama.cpp build directory..." />
         <delete dir="${project.basedir}/src/native/llama.cpp/build" />
     </target>
-    <target name="compile-llama-cpp">
+    <target name="compile-llama-cpp" if="${compileLlamaCpp}">
         <echo message="Compiling llama.cpp native code..." />
                                 
         <condition property="native.ext" value="dll">
@@ -39,7 +39,7 @@
             <arg value="Release" />
         </exec>              
     </target>
-    <target name="compile-jni">
+    <target name="compile-jni" if="${compileJNI}">
         <echo message="Compiling JNI native code..." />
                                 
         <condition property="native.ext" value="dll">
