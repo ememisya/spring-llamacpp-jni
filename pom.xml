@@ -84,7 +84,7 @@
                         <id>npm-install</id>
                         <phase>initialize</phase>
                         <configuration>
-                            <target unless="${skipFrontend}">
+                            <target>
                                 <ant antfile="src/main/ant/node/build.xml" target="execute-npm-install">
                                     <property name="project.basedir" value="${project.basedir}"/>
                                 </ant>
@@ -99,7 +99,7 @@
                         <id>npm-unit-tests</id>
                         <phase>verify</phase>
                         <configuration>
-                            <target unless="${skipFrontend}">
+                            <target>
                                 <ant antfile="src/main/ant/node/build.xml" target="run-vite-unit-tests">
                                     <property name="project.basedir" value="${project.basedir}"/>
                                 </ant>
@@ -114,7 +114,7 @@
                         <id>clean-front-end</id>
                         <phase>clean</phase>
                         <configuration>
-                            <target unless="${skipFrontend}">
+                            <target>
                                 <ant antfile="src/main/ant/node/build.xml" target="clean">
                                     <property name="project.basedir" value="${project.basedir}"/>
                                 </ant>
@@ -129,7 +129,7 @@
                         <id>clean-native-llama-build</id>
                         <phase>clean</phase>
                         <configuration>
-                            <target if="${all}">
+                            <target>
                                 <ant antfile="src/main/ant/native/build.xml" target="clean">
                                     <property name="project.basedir" value="${project.basedir}"/>
                                     <property name="project.build.outputDirectory" value="${project.build.outputDirectory}"/>
@@ -145,7 +145,7 @@
                         <id>compile-native-llama-cpp</id>
                         <phase>compile</phase>
                         <configuration>
-                            <target if="${compileLlamaCpp}">
+                            <target>
                                 <ant antfile="src/main/ant/native/build.xml" target="compile-llama-cpp">
                                     <property name="project.basedir" value="${project.basedir}"/>
                                     <property name="project.build.outputDirectory" value="${project.build.outputDirectory}"/>
@@ -161,13 +161,11 @@
                         <id>compile-native-jni</id>
                         <phase>compile</phase>
                         <configuration>
-                            <target if="${compileJNI}">
-                                
+                            <target>
                                 <ant antfile="src/main/ant/native/build.xml" target="compile-jni">
                                     <property name="project.basedir" value="${project.basedir}"/>
                                     <property name="project.build.outputDirectory" value="${project.build.outputDirectory}"/>
                                 </ant>
-                                
                             </target>
                         </configuration>
                         <goals>
