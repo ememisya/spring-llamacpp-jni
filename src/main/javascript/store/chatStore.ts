@@ -15,6 +15,9 @@ export const ChatStore = {
     contextSize: 18432,
     batchSize: 4096,
     uBatchSize: 512,
+    maxTokens: 512,
+    softLimit: 340,
+    softLimitPenalty: 5.0,
     requestPending: 0,
     dryAllowedLength: 2,
     dryBase: 1.75,
@@ -45,6 +48,18 @@ export const ChatStore = {
 
     systemMessage(state: ChatState): string {
       return state.systemMessage
+    },
+
+    maxTokens(state: ChatState): number {
+      return state.maxTokens
+    },
+
+    softLimit(state: ChatState): number {
+      return state.softLimit
+    },
+
+    softLimitPenalty(state: ChatState): number {
+      return state.softLimitPenalty
     },
 
     dynamicTemperature(state: ChatState): number {
@@ -188,6 +203,27 @@ export const ChatStore = {
       value: number,
     ): void {
       commit(T.SET_UBATCH_SIZE, value)
+    },
+
+    [T.SET_MAX_TOKENS_ACTION](
+      { commit }: ActionContext<ChatState, ChatState>,
+      value: number,
+    ): void {
+      commit(T.SET_MAX_TOKENS, value)
+    },
+
+    [T.SET_SOFT_LIMIT_ACTION](
+      { commit }: ActionContext<ChatState, ChatState>,
+      value: number,
+    ): void {
+      commit(T.SET_SOFT_LIMIT, value)
+    },
+
+    [T.SET_SOFT_LIMIT_PENALTY_ACTION](
+      { commit }: ActionContext<ChatState, ChatState>,
+      value: number,
+    ): void {
+      commit(T.SET_SOFT_LIMIT_PENALTY, value)
     },
 
     [T.CLEAR_CHAT_ACTION]({
@@ -372,9 +408,29 @@ export const ChatStore = {
       state.batchSize = value
     },
 
+    [T.SET_UBATCH_SIZE](state: ChatState, value: number): void {
+      state.uBatchSize = value
+    },
+
+    [T.SET_MAX_TOKENS](state: ChatState, value: number): void {
+      state.maxTokens = value
+    },
+
+    [T.SET_SOFT_LIMIT](state: ChatState, value: number): void {
+      state.softLimit = value
+    },
+
+    [T.SET_SOFT_LIMIT_PENALTY](state: ChatState, value: number): void {
+      state.softLimitPenalty = value
+    },
+
     [T.SET_STATE_FROM_REQUEST](state: ChatState, value: ChatParams): void {
       state.batchSize = value.batchSize
       state.contextSize = value.contextSize
+      state.uBatchSize = value.uBatchSize
+      state.maxTokens = value.maxTokens
+      state.softLimit = value.softLimit
+      state.softLimitPenalty = value.softLimitPenalty
       state.dryAllowedLength = value.dryAllowedLength
       state.dryBase = value.dryBase
       state.dryMultiplier = value.dryMultiplier
@@ -388,17 +444,12 @@ export const ChatStore = {
       state.rngSeed = value.rngSeed
       state.scratchPad = value.scratchPad
       state.temperature = value.temperature
-      state.uBatchSize = value.uBatchSize
 
       const systemMessage = value.messages.find((m) => m.role === 'system')
       if (systemMessage) {
         state.systemMessage = systemMessage.content
         state.chatList = value.messages.filter((m) => m.role !== 'system')
       }
-    },
-
-    [T.SET_UBATCH_SIZE](state: ChatState, value: number): void {
-      state.uBatchSize = value
     },
 
     [T.CLEAR_CHAT](state: ChatState): void {

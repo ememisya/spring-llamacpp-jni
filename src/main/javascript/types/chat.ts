@@ -5,7 +5,6 @@ export interface ChatParamsLogIdentifierModel {
   timestamp: string
 }
 
-// Define the Map type alias for cleaner code
 export type ChatParamsLogIdentifierMap = Map<
   string,
   ChatParamsLogIdentifierModel[]
@@ -15,6 +14,38 @@ export interface ChatMessage {
   content: string
   role: ChatMessageRole
   id?: string | number
+  emotion?: GoEmotionClassifier
+}
+
+export interface GoEmotionClassifier {
+  admiration: number
+  amusement: number
+  anger: number
+  annoyance: number
+  approval: number
+  caring: number
+  confusion: number
+  curiosity: number
+  desire: number
+  disappointment: number
+  disapproval: number
+  disgust: number
+  embarrassment: number
+  excitement: number
+  fear: number
+  gratitude: number
+  grief: number
+  joy: number
+  love: number
+  nervousness: number
+  optimism: number
+  pride: number
+  realization: number
+  relief: number
+  remorse: number
+  sadness: number
+  surprise: number
+  neutral: number
 }
 
 export interface ChatParamsLog {
@@ -23,7 +54,7 @@ export interface ChatParamsLog {
   timestamp: number | string
 }
 
-export interface ChatParams {
+export interface ChatSettings {
   batchSize: number
   contextSize: number
   dryAllowedLength: number
@@ -32,37 +63,27 @@ export interface ChatParams {
   dryPenaltyLastN: number
   dynamicTemperature: number
   freqPenalty: number
-  id: number
-  messages: ChatMessage[]
+  maxTokens: number
   minP: number
   penaltyLastN: number
   presencePenalty: number
   repeatPenalty: number
   rngSeed: number
   scratchPad: string
+  softLimit: number
+  softLimitPenalty: number
   temperature: number
   uBatchSize: number
 }
 
-export interface ChatState {
+export interface ChatParams extends ChatSettings {
+  id: number
+  messages: ChatMessage[]
+}
+
+export interface ChatState extends ChatSettings {
   chatList: ChatMessage[]
   currentUserName: string
   systemMessage: string
-  contextSize: number
-  batchSize: number
-  uBatchSize: number
-  dryAllowedLength: number
-  dryBase: number
-  dryMultiplier: number
-  dryPenaltyLastN: number
-  dynamicTemperature: number
-  freqPenalty: number
-  minP: number
-  penaltyLastN: number
-  presencePenalty: number
-  repeatPenalty: number
-  rngSeed: number
-  scratchPad: string
-  temperature: number
   requestPending: number
 }

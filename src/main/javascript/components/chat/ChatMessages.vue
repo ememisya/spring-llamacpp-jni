@@ -32,6 +32,7 @@
               ref="textFields"
               class="text-field"
               :contenteditable="isEditing(item.id)"
+              @paste="handlePaste"
               @click="startEditing(item.id)"
               v-text="item.content"
             ></div>
@@ -43,10 +44,13 @@
               @click="startEditing(item.id)"
             ></div>
             <hr v-if="isEditing(item.id)" />
-            <v-row>
+            <GoEmotionClassifier
+              v-if="item.emotion && isEditing(item.id)"
+              :emotion="item.emotion"
+            />
+            <v-row v-if="isEditing(item.id)">
               <v-col class="text-right mt-2">
                 <v-btn
-                  v-if="isEditing(item.id)"
                   class="btn-chat float-left"
                   variant="plain"
                   size="small"
@@ -57,7 +61,6 @@
                 <v-spacer />
                 <v-spacer />
                 <v-btn
-                  v-if="isEditing(item.id)"
                   variant="plain"
                   class="btn-chat float-right"
                   size="small"
@@ -123,6 +126,8 @@
   import { h } from 'vue'
   import { ChatMessage } from '@/types'
 
+  import GoEmotionClassifier from '@/components/chat/GoEmotionClassifier.vue'
+
   defineProps<{
     typing: boolean
     messages: ChatMessage[]
@@ -161,6 +166,16 @@
       payload: { id: number; content: string },
     ): void
   }>()
+
+  function handlePaste(event: ClipboardEvent) {
+    event.preventDefault()
+
+    // Extract only plain text from the clipboard
+    const text = event.clipboardData?.getData('text/plain') || ''
+
+    // Insert the clean text at the current cursor position preserving undo history
+    document.execCommand('insertText', false, text)
+  }
 
   function startEditing(id: number) {
     emit('edit-message', id)

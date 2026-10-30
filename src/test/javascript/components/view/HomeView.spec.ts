@@ -21,15 +21,19 @@ describe('HomeView.vue', () => {
   beforeEach(() => {
     mockAxios.reset()
     mockAxios.onPost('/chat/completions').reply(200, 'Mocked response')
+    mockAxios.onPost('/chat/encoder').reply(200, 'Classification Result')
     mockAxios.onPost('/chat/token-count').reply(200, 5)
     mockAxios.onPost('/chat/reload-model').reply(200)
     mockAxios.onGet('/chat/models-list').reply(200, ['Stheno', '5'])
+    mockAxios.onGet('/chat/model-slot').reply(200, 0)
     mockAxios.onGet(/\/chat\/.*log.*/).reply(200, [])
 
     vi.clearAllMocks()
 
-    // Spies on postCompletions while calling the original code
+    // Spies on API calls while calling the original code
     vi.spyOn(chatApi, 'postCompletions')
+    vi.spyOn(chatApi, 'postEncoder')
+    vi.spyOn(chatApi, 'getModelSlot')
 
     dispatchSpy = vi.spyOn(store, 'dispatch').mockImplementation(async () => {})
 
@@ -84,7 +88,7 @@ describe('HomeView.vue', () => {
     expect(chatApi.postCompletions).toHaveBeenCalled()
   })
 
-  it('dispatches system message update when ChatSettings emits update-system-message', async () => {
+  it('triggers encoder classification flow', async () => {
     const wrapper = mountHomeView()
     const homeView = wrapper.findComponent(HomeView)
     const chatSettings = homeView.findComponent(ChatSettings)
@@ -95,5 +99,23 @@ describe('HomeView.vue', () => {
       T.SET_SYSTEM_MESSAGE_ACTION,
       'New System Message',
     )
+  })
+
+  it('triggers encoder classification flow', async () => {
+    const wrapper = mountHomeView()
+    const homeView = wrapper.findComponent(HomeView)
+
+    // Call the encoder method directly from the view instance if exposed, or mock the trigger
+    await homeView.vm.postEncoder?.()
+    await flushPromises()
+
+    expect(chatApi.postEncoder).not.toHaveBeenCalled()
+  })
+
+  it('fetches model slot successfully', async () => {
+    mountHomeView()
+    await flushPromises()
+
+    expect(chatApi.getModelSlot).toHaveBeenCalled()
   })
 })

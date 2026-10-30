@@ -41,6 +41,7 @@
         <v-number-input
           v-model="localDryBase"
           :precision="null"
+          :step="0.01"
           type="number"
           density="compact"
           class="sidebar-number-input"
@@ -54,6 +55,7 @@
         <v-number-input
           v-model="localDryMultiplier"
           :precision="null"
+          :step="0.01"
           type="number"
           density="compact"
           class="sidebar-number-input"
@@ -79,6 +81,7 @@
         <v-number-input
           v-model="localDynamicTemperature"
           :precision="null"
+          :step="0.01"
           type="number"
           density="compact"
           class="sidebar-number-input"
@@ -92,6 +95,7 @@
         <v-number-input
           v-model="localFreqPenalty"
           :precision="null"
+          :step="0.01"
           type="number"
           density="compact"
           class="sidebar-number-input"
@@ -105,6 +109,7 @@
         <v-number-input
           v-model="localMinP"
           :precision="null"
+          :step="0.01"
           type="number"
           density="compact"
           class="sidebar-number-input"
@@ -130,6 +135,7 @@
         <v-number-input
           v-model="localPresencePenalty"
           :precision="null"
+          :step="0.01"
           type="number"
           density="compact"
           class="sidebar-number-input"
@@ -143,6 +149,7 @@
         <v-number-input
           v-model="localRepeatPenalty"
           :precision="null"
+          :step="0.01"
           type="number"
           density="compact"
           class="sidebar-number-input"
@@ -168,6 +175,7 @@
         <v-number-input
           v-model="localTemperature"
           :precision="null"
+          :step="0.01"
           type="number"
           density="compact"
           class="sidebar-number-input"
@@ -211,6 +219,44 @@
           @update:model-value="emitUBatchSize"
         />
       </div>
+      <!-- Max tokens -->
+      <div>
+        {{ $t('maxTokensTitle') }}
+        <v-number-input
+          v-model="localMaxTokens"
+          type="number"
+          density="compact"
+          class="sidebar-number-input"
+          :disabled="disabled"
+          @update:model-value="emitMaxTokens"
+        />
+      </div>
+      <!-- Soft limit -->
+      <div>
+        {{ $t('softLimitTitle') }}
+        <v-number-input
+          v-model="localSoftLimit"
+          type="number"
+          density="compact"
+          class="sidebar-number-input"
+          :disabled="disabled"
+          @update:model-value="emitSoftLimit"
+        />
+      </div>
+      <!-- Soft limit penalty -->
+      <div>
+        {{ $t('softLimitPenaltyTitle') }}
+        <v-number-input
+          v-model="localSoftLimitPenalty"
+          :precision="null"
+          :step="0.1"
+          type="number"
+          density="compact"
+          class="sidebar-number-input"
+          :disabled="disabled"
+          @update:model-value="emitSoftLimitPenalty"
+        />
+      </div>
     </v-card>
   </v-sheet>
 </template>
@@ -227,6 +273,9 @@
       contextSize: number
       batchSize: number
       uBatchSize: number
+      maxTokens: number
+      softLimit: number
+      softLimitPenalty: number
       dryAllowedLength: number
       dryBase: number
       dryMultiplier: number
@@ -251,6 +300,9 @@
     (e: 'update-context-size', value: number): void
     (e: 'update-batch-size', value: number): void
     (e: 'update-ubatch-size', value: number): void
+    (e: 'update-max-tokens', value: number): void
+    (e: 'update-soft-limit', value: number): void
+    (e: 'update-soft-limit-penalty', value: number): void
     (e: 'update-dry-allowed-length', value: number): void
     (e: 'update-dry-base', value: number): void
     (e: 'update-dry-multiplier', value: number): void
@@ -273,6 +325,9 @@
   const localContextSize = defineModel<number>('contextSize')
   const localBatchSize = defineModel<number>('batchSize')
   const localUBatchSize = defineModel<number>('uBatchSize')
+  const localMaxTokens = defineModel<number>('maxTokens')
+  const localSoftLimit = defineModel<number>('softLimit')
+  const localSoftLimitPenalty = defineModel<number>('softLimitPenalty')
   const localDryAllowedLength = defineModel<number>('dryAllowedLength')
   const localDryBase = defineModel<number>('dryBase')
   const localDryMultiplier = defineModel<number>('dryMultiplier')
@@ -314,6 +369,18 @@
 
   function emitUBatchSize() {
     emit('update-ubatch-size', Number(localUBatchSize.value))
+  }
+
+  function emitMaxTokens() {
+    emit('update-max-tokens', Number(localMaxTokens.value))
+  }
+
+  function emitSoftLimit() {
+    emit('update-soft-limit', Number(localSoftLimit.value))
+  }
+
+  function emitSoftLimitPenalty() {
+    emit('update-soft-limit-penalty', Number(localSoftLimitPenalty.value))
   }
 
   function emitDryAllowedLength() {

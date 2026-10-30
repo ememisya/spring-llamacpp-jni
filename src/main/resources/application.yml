@@ -1,17 +1,27 @@
 server:
   port: 8081
+  shutdown: immediate
 
 llama:
   enabled: true
   model-path:
-      - '/your_model_001.gguf'
-      - '/your_model_002.gguf'
+      - '/home/ememisya/BCK/llm/Qwen3.5-9B-The-Defiant-Fable-Uncnr-Heretic-NEO-MAX-Q8_0.gguf'
+      - '/home/ememisya/BCK/llm/L3.2-8X3B-GATED-MOE-RSN-Dark-Champion-Inst-18.4B-uncen-ablit_D_AU-Q4_k_m[popular_moe].gguf'
+      - '/home/ememisya/BCK/llm/Llama3-Little-LLM-Of-Horror_N_Fiction-14.6B-D_AU-Q5_K_M[generalizer_illogical_at_tempt_gt_0p6_borderline_personality_disorder].gguf'
+      - '/home/ememisya/BCK/llm/L3-Stheno-v3.2-12.2B-Instruct.Q8_0[generalizer_boring_nsfw].gguf'
+      - '/home/ememisya/BCK/llm/bert-base-uncased-Q8_0.gguf'
   gpu-layers:
+      - 20
       - 16
       - 30
+      - 25
+      - 13
   model-label:
-      - My Model
+      - The-Defiant-Fable-Heretic
+      - Dark-Champion MoE
+      - BPD
       - Stheno
+      - Bert
 
 spring:
   jackson:

@@ -19,6 +19,9 @@
           :context-size="contextSize"
           :batch-size="batchSize"
           :u-batch-size="uBatchSize"
+          :max-tokens="maxTokens"
+          :soft-limit="softLimit"
+          :soft-limit-penalty="softLimitPenalty"
           :dry-allowed-length="dryAllowedLength"
           :dry-base="dryBase"
           :dry-multiplier="dryMultiplier"
@@ -34,6 +37,9 @@
           @update-context-size="updateContextSize"
           @update-batch-size="updateBatchSize"
           @update-ubatch-size="updateUBatchSize"
+          @update-max-tokens="updateMaxTokens"
+          @update-soft-limit="updateSoftLimit"
+          @update-soft-limit-penalty="updateSoftLimitPenalty"
           @update-scratchpad="updateScratchPad"
           @update-dry-allowed-length="updateDryAllowedLength"
           @update-dry-base="updateDryBase"
@@ -49,6 +55,7 @@
           @update-temperature="updateTemperature"
           @update-system-message="updateSystemMessage"
         />
+        {{ $t('loadedModelSlotLabel') }}: {{ modelSlot }}
         <ChatLoadModel
           :disabled="requestPending > 0"
           :models-list="modelsList"
@@ -127,6 +134,7 @@
     postReloadModel,
     getChatParamsLogIdentifiers,
     getModelsList,
+    getModelSlot,
   } from '@/api/chat'
   import { scrollToBottom, playBeep } from '@/composables'
 
@@ -149,6 +157,7 @@
 
   const tokenCount = ref(0)
   const modelsList = ref<string>([])
+  const modelSlot = ref(0)
 
   // Derived state
   const requestPending = computed(() => store.getters.requestPending)
@@ -161,6 +170,9 @@
   const contextSize = computed(() => store.getters.contextSize)
   const batchSize = computed(() => store.getters.batchSize)
   const uBatchSize = computed(() => store.getters.uBatchSize)
+  const maxTokens = computed(() => store.getters.maxTokens)
+  const softLimit = computed(() => store.getters.softLimit)
+  const softLimitPenalty = computed(() => store.getters.softLimitPenalty)
 
   const dryAllowedLength = computed(() => store.getters.dryAllowedLength)
   const dryBase = computed(() => store.getters.dryBase)
@@ -178,6 +190,7 @@
   onMounted(async () => {
     updateTokenCount()
     modelsList.value = await getModelsList()
+    updateModelSlot()
   })
 
   function generateUniqueId(): number {
@@ -195,6 +208,9 @@
       contextSize: contextSize.value,
       batchSize: batchSize.value,
       uBatchSize: uBatchSize.value,
+      maxTokens: maxTokens.value,
+      softLimit: softLimit.value,
+      softLimitPenalty: softLimitPenalty.value,
       dryAllowedLength: dryAllowedLength.value,
       dryBase: dryBase.value,
       dryMultiplier: dryMultiplier.value,
@@ -224,7 +240,7 @@
     store.dispatch(T.SET_SYSTEM_MESSAGE_ACTION, value)
   }
 
-  // Model settings
+  // Model & Generation settings
   function updateContextSize(value: number) {
     store.dispatch(T.SET_CONTEXT_SIZE_ACTION, value)
   }
@@ -235,6 +251,18 @@
 
   function updateUBatchSize(value: number) {
     store.dispatch(T.SET_UBATCH_SIZE_ACTION, value)
+  }
+
+  function updateMaxTokens(value: number) {
+    store.dispatch(T.SET_MAX_TOKENS_ACTION, value)
+  }
+
+  function updateSoftLimit(value: number) {
+    store.dispatch(T.SET_SOFT_LIMIT_ACTION, value)
+  }
+
+  function updateSoftLimitPenalty(value: number) {
+    store.dispatch(T.SET_SOFT_LIMIT_PENALTY_ACTION, value)
   }
 
   // Scratchpad
@@ -290,11 +318,14 @@
     store.dispatch(T.SET_TEMPERATURE_ACTION, value)
   }
 
-  async function reloadModel(value: number) {
+  async function reloadModel(value: number, silent?: boolean) {
     store.dispatch(T.SET_REQUEST_PENDING_ACTION, 2)
     try {
       await postReloadModel(value)
-      showSnackbar(t('loadedModelMessage'), 'success', 2500)
+      modelSlot.value = value
+      if (!silent) {
+        showSnackbar(t('loadedModelMessage'), 'success', 2500)
+      }
     } catch (error: unknown) {
       if (error instanceof Error) {
         showSnackbar(error?.message, 'warning', 2500)
@@ -356,6 +387,16 @@
     }
   }
 
+  async function updateModelSlot() {
+    try {
+      modelSlot.value = await getModelSlot()
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        modelSlot.value = 0
+      }
+    }
+  }
+
   async function doGetChatParamsLog(id: number) {
     const data: ChatParamsLog = await getChatParamsLog(id)
     store.dispatch(T.SET_STATE_FROM_REQUEST_ACTION, data.chatParams)
@@ -400,7 +441,7 @@
     store.dispatch(T.SET_REQUEST_PENDING_ACTION, true)
 
     try {
-      const response = await postCompletions(
+      const response: string = await postCompletions(
         constructRequest(),
         forceNewContext.value,
       )
