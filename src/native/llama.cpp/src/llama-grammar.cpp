@@ -2,14 +2,17 @@
 
 #include "llama-impl.h"
 #include "llama-vocab.h"
-#include "llama-sampling.h"
+#include "llama-sampler.h"
 
 #include <cmath>
 #include <algorithm>
 #include <cstdint>
+#include <set>
+#include <numeric>
 #include <stdexcept>
 
 #define MAX_REPETITION_THRESHOLD 2000
+#define GRAMMAR_RECURSIVE_LIMIT 256
 //
 // helpers
 //
@@ -171,6 +174,7 @@ static std::pair<uint32_t, const char *> parse_char(const char * src) {
             case '"':
             case '[':
             case ']':
+            case '-':
                       return std::make_pair(src[1], src + 2);
             default:
                       throw std::runtime_error(std::string("unknown escape at ") + src);
@@ -179,6 +183,56 @@ static std::pair<uint32_t, const char *> parse_char(const char * src) {
         return decode_utf8(src);
     }
     throw std::runtime_error("unexpected end of input");
+}
+
+static std::pair<uint32_t, const char *> parse_token(const llama_vocab * vocab, const char * src) {
+    const char * pos = src;
+    if (*pos != '<') {
+        throw std::runtime_error(std::string("expecting '<' at ") + pos);
+    }
+    pos++;
+
+    // Parse <[id]>
+    if (*pos == '[') {
+        pos++;
+        const char * int_end = parse_int(pos);
+        unsigned long id = std::stoul(std::string(pos, int_end - pos));
+        if (id > std::numeric_limits<uint32_t>::max()) {
+            throw std::runtime_error(std::string("parsed token id is too big at ") + pos);
+        }
+        uint32_t token_id = static_cast<uint32_t>(id);
+        pos = int_end;
+        if (*pos != ']') {
+            throw std::runtime_error(std::string("expecting ']' at ") + pos);
+        }
+        pos++;
+        if (*pos != '>') {
+            throw std::runtime_error(std::string("expecting '>' at ") + pos);
+        }
+        pos++;
+        return std::make_pair(token_id, pos);
+    }
+
+    if (vocab == nullptr) {
+        throw std::runtime_error(std::string("no vocab to parse token at ") + src);
+    }
+
+    // Parse <token> and tokenize to obtain the token id
+    while (*pos != 0 && *pos != '>') {
+        pos++;
+    }
+    if (*pos != '>') {
+        throw std::runtime_error(std::string("expecting '>' at ") + pos);
+    }
+    pos++;
+
+    llama_token tokens[2];
+    int32_t n_tokens = vocab->tokenize(src, static_cast<int32_t>(pos - src), tokens, 2, false, true);
+    if (n_tokens != 1) {
+        // must tokenize to exactly 1 token
+        throw std::runtime_error("invalid token '" + std::string(src, pos - src) + "'");
+    }
+    return std::make_pair(tokens[0], pos);
 }
 
 static void print_grammar_char(FILE * file, uint32_t c) {
@@ -212,6 +266,8 @@ static void print_rule_binary(FILE * file, const llama_grammar_rule & rule) {
             case LLAMA_GRETYPE_CHAR_RNG_UPPER: fprintf(file, "CHAR_RNG_UPPER"); break;
             case LLAMA_GRETYPE_CHAR_ALT:       fprintf(file, "CHAR_ALT");       break;
             case LLAMA_GRETYPE_CHAR_ANY:       fprintf(file, "CHAR_ANY");       break;
+            case LLAMA_GRETYPE_TOKEN:          fprintf(file, "TOKEN");          break;
+            case LLAMA_GRETYPE_TOKEN_NOT:      fprintf(file, "TOKEN_NOT");      break;
         }
         switch (elem.type) {
             case LLAMA_GRETYPE_END:
@@ -227,6 +283,17 @@ static void print_rule_binary(FILE * file, const llama_grammar_rule & rule) {
                 fprintf(file, "(\"");
                 print_grammar_char(file, elem.value);
                 fprintf(file, "\") ");
+                break;
+            case LLAMA_GRETYPE_TOKEN:
+                fprintf(file, "<[");
+                fprintf(file, "%u", elem.value);
+                fprintf(file, "]> ");
+                break;
+            case LLAMA_GRETYPE_TOKEN_NOT:
+                fprintf(file, "!");
+                fprintf(file, "<[");
+                fprintf(file, "%u", elem.value);
+                fprintf(file, "]> ");
                 break;
         }
     }
@@ -284,6 +351,17 @@ static void print_rule(
             case LLAMA_GRETYPE_CHAR_ANY:
                 fprintf(file, ".");
                 break;
+            case LLAMA_GRETYPE_TOKEN:
+                fprintf(file, "<[");
+                fprintf(file, "%u", elem.value);
+                fprintf(file, "]> ");
+                break;
+            case LLAMA_GRETYPE_TOKEN_NOT:
+                fprintf(file, "!");
+                fprintf(file, "<[");
+                fprintf(file, "%u", elem.value);
+                fprintf(file, "]> ");
+                break;
         }
         if (is_char_element(elem)) {
             switch (rule[i + 1].type) {
@@ -298,6 +376,44 @@ static void print_rule(
     }
     fprintf(file, "\n");
 }
+
+//
+// Regex utilities
+//
+
+size_t llama_grammar_trigger_pattern::find(const std::string & input) const {
+    auto find_start_pos = [](const std::smatch & match) {
+        // get from the first matched capturing group to the end of the string
+        size_t start = std::string::npos;
+        for (auto i = 1u; i < match.size(); i++) {
+            if (match.length(i) > 0) {
+                start = match.position(i);
+                break;
+            }
+        }
+        if (start == std::string::npos) {
+            start = match.position(0);
+        }
+        return start;
+    };
+
+    if (!pattern.empty() && pattern.front() == '^' && pattern.back() == '$') {
+        // match against the entire input
+        std::smatch match;
+        if (std::regex_match(input, match, regex)) {
+            return find_start_pos(match);
+        }
+    }
+
+    // search anywhere
+    std::smatch match;
+    if (std::regex_search(input, match, regex)) {
+        return find_start_pos(match);
+    }
+
+    return std::string::npos;
+}
+
 
 //
 // implementation
@@ -326,13 +442,14 @@ const char * llama_grammar_parser::parse_alternates(
         const char        * src,
         const std::string & rule_name,
         uint32_t            rule_id,
-        bool                is_nested) {
+        bool                is_nested,
+        uint32_t            depth) {
     llama_grammar_rule rule;
-    const char * pos = parse_sequence(src, rule_name, rule, is_nested);
+    const char * pos = parse_sequence(src, rule_name, rule, is_nested, depth);
     while (*pos == '|') {
         rule.push_back({LLAMA_GRETYPE_ALT, 0});
         pos = parse_space(pos + 1, true);
-        pos = parse_sequence(pos, rule_name, rule, is_nested);
+        pos = parse_sequence(pos, rule_name, rule, is_nested, depth);
     }
     rule.push_back({LLAMA_GRETYPE_END, 0});
     add_rule(rule_id, rule);
@@ -343,9 +460,11 @@ const char * llama_grammar_parser::parse_sequence(
         const char         * src,
         const std::string  & rule_name,
         llama_grammar_rule & rule,
-        bool               is_nested) {
+        bool               is_nested,
+        uint32_t           depth) {
     size_t last_sym_start = rule.size();
     const char * pos = src;
+    uint64_t n_prev_rules = 1;
 
     // use UINT64_MAX as the empty value because we aligned to the proper uint64_t type so -1 can't be used
     // (though it's technically the same as -1 now)
@@ -373,6 +492,18 @@ const char * llama_grammar_parser::parse_sequence(
         //            S'     ::= S |
 
         llama_grammar_rule prev_rule(rule.begin() + last_sym_start, rule.end());
+        // Calculate the total number of rules that will be generated by this repetition
+        uint64_t total_rules = 1; // Start with 1 for the original rule
+        if (!no_max && max_times > 0) {
+            total_rules = max_times;
+        } else if (min_times > 0) {
+            total_rules = min_times;
+        }
+
+        if (n_prev_rules * total_rules > MAX_REPETITION_THRESHOLD) {
+            throw std::runtime_error("number of rules that are going to be repeated multiplied by the new repetition exceeds sane defaults, please reduce the number of repetitions or rule complexity");
+        }
+
         if (min_times == 0) {
             rule.resize(last_sym_start);
         } else {
@@ -400,12 +531,15 @@ const char * llama_grammar_parser::parse_sequence(
         if (n_opt > 0) {
             rule.push_back({LLAMA_GRETYPE_RULE_REF, last_rec_rule_id});
         }
+        n_prev_rules *= total_rules;
+        GGML_ASSERT(n_prev_rules >= 1);
     };
 
     while (*pos) {
         if (*pos == '"') { // literal string
             pos++;
             last_sym_start = rule.size();
+            n_prev_rules = 1;
             while (*pos != '"') {
                 if (!*pos) {
                     throw std::runtime_error("unexpected end of input");
@@ -423,6 +557,7 @@ const char * llama_grammar_parser::parse_sequence(
                 start_type = LLAMA_GRETYPE_CHAR_NOT;
             }
             last_sym_start = rule.size();
+            n_prev_rules = 1;
             while (*pos != ']') {
                 if (!*pos) {
                     throw std::runtime_error("unexpected end of input");
@@ -444,17 +579,35 @@ const char * llama_grammar_parser::parse_sequence(
                 }
             }
             pos = parse_space(pos + 1, is_nested);
+        } else if (*pos == '<' || *pos == '!') { // token
+            auto type = LLAMA_GRETYPE_TOKEN;
+            if (*pos == '!') { // token inverse
+                type = LLAMA_GRETYPE_TOKEN_NOT;
+                pos++;
+            }
+            auto token_pair = parse_token(vocab, pos);
+            const char * token_end  = token_pair.second;
+            last_sym_start = rule.size();
+            n_prev_rules = 1;
+            rule.push_back({type, token_pair.first});
+            pos = parse_space(token_end, is_nested);
         } else if (is_word_char(*pos)) { // rule reference
             const char * name_end    = parse_name(pos);
             uint32_t ref_rule_id = get_symbol_id(pos, name_end - pos);
             pos = parse_space(name_end, is_nested);
             last_sym_start = rule.size();
+            n_prev_rules = 1;
             rule.push_back({LLAMA_GRETYPE_RULE_REF, ref_rule_id});
         } else if (*pos == '(') { // grouping
+            if (depth >= GRAMMAR_RECURSIVE_LIMIT) {
+                throw std::runtime_error("grammar recursion depth limit exceeded (max " + std::to_string(GRAMMAR_RECURSIVE_LIMIT) + "), please reduce nesting depth");
+            }
             // parse nested alternates into synthesized rule
             pos = parse_space(pos + 1, true);
+            uint32_t n_rules_before = symbol_ids.size();
             uint32_t sub_rule_id = generate_symbol_id(rule_name);
-            pos = parse_alternates(pos, rule_name, sub_rule_id, true);
+            pos = parse_alternates(pos, rule_name, sub_rule_id, true, depth + 1);
+            n_prev_rules = std::max(1u, (uint32_t)symbol_ids.size() - n_rules_before);
             last_sym_start = rule.size();
             // output reference to synthesized rule
             rule.push_back({LLAMA_GRETYPE_RULE_REF, sub_rule_id});
@@ -464,6 +617,7 @@ const char * llama_grammar_parser::parse_sequence(
             pos = parse_space(pos + 1, is_nested);
         } else if (*pos == '.') { // any char
             last_sym_start = rule.size();
+            n_prev_rules = 1;
             rule.push_back({LLAMA_GRETYPE_CHAR_ANY, 0});
             pos = parse_space(pos + 1, is_nested);
         } else if (*pos == '*') {
@@ -482,7 +636,7 @@ const char * llama_grammar_parser::parse_sequence(
                 throw std::runtime_error(std::string("expecting an int at ") + pos);
             }
             const char * int_end = parse_int(pos);
-            uint64_t min_times = std::stoul(std::string(pos, int_end - pos));
+            uint64_t min_times = std::stoull(std::string(pos, int_end - pos));
             pos = parse_space(int_end, is_nested);
 
             uint64_t max_times = UINT64_MAX; // default: no max limit
@@ -495,7 +649,7 @@ const char * llama_grammar_parser::parse_sequence(
 
                 if (is_digit_char(*pos)) {
                     const char * int_end = parse_int(pos);
-                    max_times = std::stoul(std::string(pos, int_end - pos));
+                    max_times = std::stoull(std::string(pos, int_end - pos));
                     pos = parse_space(int_end, is_nested);
                 }
 
@@ -506,9 +660,11 @@ const char * llama_grammar_parser::parse_sequence(
             } else {
                 throw std::runtime_error(std::string("expecting ',' at ") + pos);
             }
-            bool has_max = max_times != UINT64_MAX;
-            if (min_times > MAX_REPETITION_THRESHOLD || (has_max && max_times > MAX_REPETITION_THRESHOLD)) {
+            if (min_times > MAX_REPETITION_THRESHOLD) {
                 throw std::runtime_error(std::string("number of repetitions exceeds sane defaults, please reduce the number of repetitions"));
+            }
+            if (max_times != UINT64_MAX && max_times > MAX_REPETITION_THRESHOLD) {
+                max_times = UINT64_MAX;
             }
             handle_repetitions(min_times, max_times);
         } else {
@@ -691,37 +847,75 @@ static bool llama_grammar_match_partial_char(
     return !is_positive_char;
 }
 
+// returns true iff token matches the rule at pos (regular or inverse)
+// asserts that pos is pointing to a token element
+static bool llama_grammar_match_token(
+    const llama_grammar_element * pos,
+    const llama_token             token) {
+    GGML_ASSERT(pos->type == LLAMA_GRETYPE_TOKEN || pos->type == LLAMA_GRETYPE_TOKEN_NOT);
+    if (pos->type == LLAMA_GRETYPE_TOKEN) {
+        return pos->value == static_cast<uint32_t>(token);
+    }
+    if (pos->type == LLAMA_GRETYPE_TOKEN_NOT) {
+        return pos->value != static_cast<uint32_t>(token);
+    }
+    return false;
+}
+
 // transforms a grammar pushdown stack into N possible stacks, all ending
 // at a character range (terminal element)
 static void llama_grammar_advance_stack(
         const llama_grammar_rules  & rules,
         const llama_grammar_stack  & stack,
-              llama_grammar_stacks & new_stacks) {
-    if (stack.empty()) {
-        if (std::find(new_stacks.begin(), new_stacks.end(), stack) == new_stacks.end()) {
-            new_stacks.emplace_back(stack);
+        llama_grammar_stacks & new_stacks) {
+    std::vector<llama_grammar_stack> todo;
+    todo.push_back(stack);
+
+    auto stack_cmp = [](const llama_grammar_stack & a, const llama_grammar_stack & b) {
+        return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end(),
+            [](const llama_grammar_element * pa, const llama_grammar_element * pb) {
+                return pa < pb;  // Compare pointer addresses
+            }
+        );
+    };
+
+    std::set<llama_grammar_stack, decltype(stack_cmp)> seen(stack_cmp);
+
+    while (!todo.empty()) {
+        llama_grammar_stack curr_stack_candidate = std::move(todo.back());
+        todo.pop_back();
+
+        auto [curr_stack_it, inserted] = seen.insert(std::move(curr_stack_candidate));
+        if (!inserted) {
+            continue;
         }
-        return;
-    }
+        const llama_grammar_stack & curr_stack = *curr_stack_it;
 
-    const llama_grammar_element * pos = stack.back();
+        if (curr_stack.empty()) {
+            if (std::find(new_stacks.begin(), new_stacks.end(), curr_stack) == new_stacks.end()) {
+                new_stacks.emplace_back(curr_stack);
+            }
+            continue;
+        }
 
-    switch (pos->type) {
+        const llama_grammar_element * pos = curr_stack.back();
+
+        switch (pos->type) {
         case LLAMA_GRETYPE_RULE_REF: {
             const size_t                  rule_id = static_cast<size_t>(pos->value);
             const llama_grammar_element * subpos  = rules[rule_id].data();
             do {
                 // init new stack without the top (pos)
-                llama_grammar_stack new_stack(stack.begin(), stack.end() - 1);
+                llama_grammar_stack next_stack(curr_stack.begin(), curr_stack.end() - 1);
                 if (!llama_grammar_is_end_of_sequence(pos + 1)) {
                     // if this rule ref is followed by another element, add that to stack
-                    new_stack.push_back(pos + 1);
+                    next_stack.push_back(pos + 1);
                 }
                 if (!llama_grammar_is_end_of_sequence(subpos)) {
                     // if alternate is nonempty, add to stack
-                    new_stack.push_back(subpos);
+                    next_stack.push_back(subpos);
                 }
-                llama_grammar_advance_stack(rules, new_stack, new_stacks);
+                todo.push_back(std::move(next_stack));
                 while (!llama_grammar_is_end_of_sequence(subpos)) {
                     // scan to end of alternate def
                     subpos++;
@@ -738,9 +932,11 @@ static void llama_grammar_advance_stack(
         case LLAMA_GRETYPE_CHAR:
         case LLAMA_GRETYPE_CHAR_NOT:
         case LLAMA_GRETYPE_CHAR_ANY:
-            if (std::find(new_stacks.begin(), new_stacks.end(), stack) == new_stacks.end()) {
+        case LLAMA_GRETYPE_TOKEN:
+        case LLAMA_GRETYPE_TOKEN_NOT:
+            if (std::find(new_stacks.begin(), new_stacks.end(), curr_stack) == new_stacks.end()) {
                 // only add the stack if it's not a duplicate of one we already have
-                new_stacks.emplace_back(stack);
+                new_stacks.emplace_back(curr_stack);
             }
             break;
         default:
@@ -748,26 +944,8 @@ static void llama_grammar_advance_stack(
             // (LLAMA_GRETYPE_CHAR_ALT, LLAMA_GRETYPE_CHAR_RNG_UPPER); stack should never be left on
             // those
             GGML_ABORT("fatal error");
+        }
     }
-}
-
-static llama_grammar_candidates llama_grammar_reject_candidates(
-        const llama_grammar_rules      & rules,
-        const llama_grammar_stacks     & stacks,
-        const llama_grammar_candidates & candidates) {
-    GGML_ASSERT(!stacks.empty()); // REVIEW
-
-    if (candidates.empty()) {
-        return {};
-    }
-
-    auto rejects = llama_grammar_reject_candidates_for_stack(rules, stacks.front(), candidates);
-
-    for (size_t i = 1, size = stacks.size(); i < size; ++i) {
-        rejects = llama_grammar_reject_candidates_for_stack(rules, stacks[i], rejects);
-    }
-
-    return rejects;
 }
 
 static bool llama_grammar_detect_left_recursion(
@@ -775,9 +953,13 @@ static bool llama_grammar_detect_left_recursion(
         size_t rule_index,
         std::vector<bool> * rules_visited,
         std::vector<bool> * rules_in_progress,
-        std::vector<bool> * rules_may_be_empty) {
+        std::vector<bool> * rules_may_be_empty,
+        uint32_t depth = 0) {
     if ((*rules_in_progress)[rule_index]) {
         return true;
+    }
+    if (depth > GRAMMAR_RECURSIVE_LIMIT) {
+        throw std::runtime_error("grammar rules are chained more than " + std::to_string(GRAMMAR_RECURSIVE_LIMIT) + " levels deep");
     }
 
     (*rules_in_progress)[rule_index] = true;
@@ -804,7 +986,7 @@ static bool llama_grammar_detect_left_recursion(
     bool recurse_into_nonterminal = true;
     for (size_t i = 0; i < rule.size(); i++) {
         if (rule[i].type == LLAMA_GRETYPE_RULE_REF && recurse_into_nonterminal) {
-            if (llama_grammar_detect_left_recursion(rules, (size_t)rule[i].value, rules_visited, rules_in_progress, rules_may_be_empty)) {
+            if (llama_grammar_detect_left_recursion(rules, (size_t)rule[i].value, rules_visited, rules_in_progress, rules_may_be_empty, depth + 1)) {
                 return true;
             }
             if (!((*rules_may_be_empty)[(size_t)rule[i].value])) {
@@ -831,65 +1013,100 @@ llama_grammar_stacks & llama_grammar_get_stacks(struct llama_grammar * grammar) 
     return grammar->stacks;
 }
 
+static void llama_grammar_accept_chr(
+        struct llama_grammar       & grammar,
+        const llama_grammar_stack  & stack,
+              uint32_t               chr,
+              llama_grammar_stacks & new_stacks) {
+    if (stack.empty()) {
+        return;
+    }
+
+    const llama_grammar_element * pos = stack.back();
+
+    // ignore if this turns into a token
+    if (pos->type == LLAMA_GRETYPE_TOKEN || pos->type == LLAMA_GRETYPE_TOKEN_NOT) {
+        return;
+    }
+
+    auto match = llama_grammar_match_char(pos, chr);
+    if (match.first) {
+        llama_grammar_stack new_stack(stack.begin(), stack.end() - 1);
+        if (!llama_grammar_is_end_of_sequence(match.second)) {
+            new_stack.push_back(match.second);
+        }
+        llama_grammar_advance_stack(grammar.rules, new_stack, new_stacks);
+    }
+}
+
 void llama_grammar_accept(struct llama_grammar * grammar, uint32_t chr) {
     llama_grammar_stacks stacks_new;
     stacks_new.reserve(grammar->stacks.size());
 
     for (const auto & stack : grammar->stacks) {
-        if (stack.empty()) {
-            continue;
-        }
-
-        auto match = llama_grammar_match_char(stack.back(), chr);
-        if (match.first) {
-            const llama_grammar_element * pos = match.second;
-
-            // update top of stack to next element, if any
-            llama_grammar_stack new_stack(stack.begin(), stack.end() - 1);
-            if (!llama_grammar_is_end_of_sequence(pos)) {
-                new_stack.push_back(pos);
-            }
-            llama_grammar_advance_stack(grammar->rules, new_stack, stacks_new);
-        }
+        llama_grammar_accept_chr(*grammar, stack, chr, stacks_new);
     }
 
     grammar->stacks = std::move(stacks_new);
 }
 
-llama_grammar_candidates llama_grammar_reject_candidates_for_stack(
+// checks the code point at depth of each candidate (an index into the input) against the stack
+// returns true when some match: they go to next, and the stacks that follow to next_stacks
+static bool llama_grammar_reject_step(
         const llama_grammar_rules      & rules,
         const llama_grammar_stack      & stack,
-        const llama_grammar_candidates & candidates) {
-
-    llama_grammar_candidates rejects;
-    rejects.reserve(candidates.size());
+        const llama_grammar_candidates & candidates,
+        size_t                           depth,
+        const std::vector<uint32_t>    & cur,
+              std::vector<uint32_t>    & rejects,
+              std::vector<uint32_t>    & next,
+              llama_grammar_stacks     & next_stacks) {
+    rejects.reserve(cur.size());
 
     if (stack.empty()) {
-        for (const auto & tok : candidates) {
-            if (*tok.code_points != 0 || tok.partial_utf8.n_remain != 0) {
-                rejects.push_back(tok);
+        for (const uint32_t i : cur) {
+            const auto & tok = candidates[i];
+            if (tok.code_points[depth] != 0 || tok.partial_utf8.n_remain != 0) {
+                rejects.push_back(i);
             }
         }
-        return rejects;
+        return false;
     }
 
     const llama_grammar_element * stack_pos = stack.back();
 
-    llama_grammar_candidates next_candidates;
-    next_candidates.reserve(candidates.size());
+    // if the top of the stack is a token rule, then we only need to check the token id
+    if (stack_pos->type == LLAMA_GRETYPE_TOKEN || stack_pos->type == LLAMA_GRETYPE_TOKEN_NOT) {
+        for (const uint32_t i : cur) {
+            const auto & tok = candidates[i];
+            if (tok.code_points[depth] == 0) {
+                // reached the end of a token consumed by char rules, reject iff it ended
+                // in a partial response
+                if (tok.partial_utf8.n_remain != 0) {
+                    rejects.push_back(i);
+                }
+            } else if (!llama_grammar_match_token(stack_pos, tok.id)) {
+                rejects.push_back(i);
+            }
+        }
+        return false;
+    }
 
-    for (const auto & tok : candidates) {
-        if (*tok.code_points == 0) {
+    next.reserve(cur.size());
+
+    for (const uint32_t i : cur) {
+        const auto & tok = candidates[i];
+        if (tok.code_points[depth] == 0) {
             // reached end of full codepoints in token, reject iff it ended in a partial sequence
             // that cannot satisfy this position in grammar
             if (tok.partial_utf8.n_remain != 0 &&
                     !llama_grammar_match_partial_char(stack_pos, tok.partial_utf8)) {
-                rejects.push_back(tok);
+                rejects.push_back(i);
             }
-        } else if (llama_grammar_match_char(stack_pos, *tok.code_points).first) {
-            next_candidates.push_back({ tok.index, tok.code_points + 1, tok.partial_utf8 });
+        } else if (llama_grammar_match_char(stack_pos, tok.code_points[depth]).first) {
+            next.push_back(i);
         } else {
-            rejects.push_back(tok);
+            rejects.push_back(i);
         }
     }
 
@@ -900,15 +1117,78 @@ llama_grammar_candidates llama_grammar_reject_candidates_for_stack(
     if (!llama_grammar_is_end_of_sequence(stack_pos_after)) {
         stack_after.push_back(stack_pos_after);
     }
-    llama_grammar_stacks next_stacks;
     llama_grammar_advance_stack(rules, stack_after, next_stacks);
 
-    auto next_rejects = llama_grammar_reject_candidates(rules, next_stacks, next_candidates);
-    for (const auto & tok : next_rejects) {
-        rejects.push_back({ tok.index, tok.code_points - 1, tok.partial_utf8 });
+    return true;
+}
+
+// the candidates that no stack accepts, each stack narrows the rejects of the previous one
+// no recursion: a level per code point, a token from the GGUF can be long
+static llama_grammar_candidates llama_grammar_reject_candidates(
+        const llama_grammar_rules      & rules,
+        const llama_grammar_stacks     & stacks,
+        const llama_grammar_candidates & candidates) {
+    GGML_ASSERT(!stacks.empty()); // REVIEW
+
+    // a level checks the candidates that reach its code point against its stacks in turn
+    struct level {
+        llama_grammar_stacks  stacks;
+        size_t                i;       // the stack in progress
+        std::vector<uint32_t> cur;     // the candidates rejected by stacks[0, i)
+        std::vector<uint32_t> rejects; // the rejects of stacks[i] at this code point
+    };
+
+    std::vector<uint32_t> all(candidates.size());
+    std::iota(all.begin(), all.end(), 0u);
+
+    std::vector<level> levels;
+    levels.push_back({ stacks, 0, std::move(all), {} });
+
+    while (true) {
+        level & lv = levels.back();
+
+        if (lv.i == lv.stacks.size() || lv.cur.empty()) {
+            if (levels.size() == 1) {
+                break;
+            }
+            // the rejects at the next code point belong to stacks[i] of the parent level
+            level & parent = levels[levels.size() - 2];
+            parent.rejects.insert(parent.rejects.end(), lv.cur.begin(), lv.cur.end());
+            levels.pop_back();
+            parent.cur = std::move(parent.rejects);
+            parent.rejects = {};
+            parent.i++;
+            continue;
+        }
+
+        std::vector<uint32_t> rejects;
+        std::vector<uint32_t> next;
+        llama_grammar_stacks  next_stacks;
+
+        if (!llama_grammar_reject_step(rules, lv.stacks[lv.i], candidates, levels.size() - 1, lv.cur, rejects, next, next_stacks)) {
+            lv.cur = std::move(rejects);
+            lv.i++;
+            continue;
+        }
+
+        GGML_ASSERT(!next_stacks.empty());
+        lv.rejects = std::move(rejects);
+        levels.push_back({ std::move(next_stacks), 0, std::move(next), {} });
     }
 
+    llama_grammar_candidates rejects;
+    rejects.reserve(levels[0].cur.size());
+    for (const uint32_t i : levels[0].cur) {
+        rejects.push_back(candidates[i]);
+    }
     return rejects;
+}
+
+llama_grammar_candidates llama_grammar_reject_candidates_for_stack(
+        const llama_grammar_rules      & rules,
+        const llama_grammar_stack      & stack,
+        const llama_grammar_candidates & candidates) {
+    return llama_grammar_reject_candidates(rules, llama_grammar_stacks{ stack }, candidates);
 }
 
 ////////////////////
@@ -929,18 +1209,35 @@ struct llama_grammar * llama_grammar_init_impl(
         vec_rules[i].push_back({LLAMA_GRETYPE_END, 0});
     }
 
+    // Validate that all rule references point to valid rules
+    for (size_t i = 0; i < n_rules; i++) {
+        for (const auto & elem : vec_rules[i]) {
+            if (elem.type == LLAMA_GRETYPE_RULE_REF) {
+                if (elem.value >= n_rules || vec_rules[elem.value].empty()) {
+                    LLAMA_LOG_ERROR("invalid grammar: rule %zu references undefined rule %u\n", i, elem.value);
+                    return nullptr;
+                }
+            }
+        }
+    }
+
     // Check for left recursion
     std::vector<bool> rules_visited(n_rules);
     std::vector<bool> rules_in_progress(n_rules);
     std::vector<bool> rules_may_be_empty(n_rules);
-    for (size_t i = 0; i < n_rules; i++) {
-        if (rules_visited[i]) {
-            continue;
+    try {
+        for (size_t i = 0; i < n_rules; i++) {
+            if (rules_visited[i]) {
+                continue;
+            }
+            if (llama_grammar_detect_left_recursion(vec_rules, i, &rules_visited, &rules_in_progress, &rules_may_be_empty)) {
+                LLAMA_LOG_ERROR("unsupported grammar, left recursion detected for nonterminal at index %zu", i);
+                return nullptr;
+            }
         }
-        if (llama_grammar_detect_left_recursion(vec_rules, i, &rules_visited, &rules_in_progress, &rules_may_be_empty)) {
-            LLAMA_LOG_ERROR("unsupported grammar, left recursion detected for nonterminal at index %zu", i);
-            return nullptr;
-        }
+    } catch (const std::exception & err) {
+        LLAMA_LOG_ERROR("unsupported grammar: %s\n", err.what());
+        return nullptr;
     }
 
     // loop over alternates of start rule to build initial stacks
@@ -972,12 +1269,13 @@ struct llama_grammar * llama_grammar_init_impl(
         vocab,
         std::move(vec_rules),
         std::move(stacks),
-        /* .partial_utf8 = */     {},
-        /* .lazy =*/              false,
-        /* .awaiting_trigger = */ false,
-        /* .trigger_buffer = */   "",
-        /* .trigger_tokens   = */ {},
-        /* .trigger_patterns    = */ {},
+        /* .partial_utf8 = */             {},
+        /* .lazy = */                     false,
+        /* .awaiting_trigger = */         false,
+        /* .trigger_buffer = */           "",
+        /* .trigger_buffer_positions = */ {},
+        /* .trigger_tokens = */           {},
+        /* .trigger_patterns = */         {},
     };
 }
 
@@ -990,18 +1288,18 @@ struct llama_grammar * llama_grammar_init_impl(
                             size_t num_trigger_patterns,
                const llama_token * trigger_tokens,
                             size_t num_trigger_tokens) {
-    llama_grammar_parser parser;
+    llama_grammar_parser parser(vocab);
 
     // if there is a grammar, parse it
     // rules will be empty (default) if there are parse errors
     if (!parser.parse(grammar_str) || parser.rules.empty()) {
-        fprintf(stderr, "%s: failed to parse grammar\n", __func__);
+        LLAMA_LOG_ERROR("failed to parse grammar\n");
         return nullptr;
     }
 
-    // Ensure that there is a "root" node.
-    if (parser.symbol_ids.find("root") == parser.symbol_ids.end()) {
-        fprintf(stderr, "%s: grammar does not contain a 'root' symbol\n", __func__);
+    // Ensure that the grammar contains the start symbol
+    if (parser.symbol_ids.find(grammar_root) == parser.symbol_ids.end()) {
+        LLAMA_LOG_ERROR("grammar does not contain a '%s' symbol\n", grammar_root);
         return nullptr;
     }
 
@@ -1025,14 +1323,19 @@ struct llama_grammar * llama_grammar_init_impl(
     std::vector<bool> rules_visited(n_rules);
     std::vector<bool> rules_in_progress(n_rules);
     std::vector<bool> rules_may_be_empty(n_rules);
-    for (size_t i = 0; i < n_rules; i++) {
-        if (rules_visited[i]) {
-            continue;
+    try {
+        for (size_t i = 0; i < n_rules; i++) {
+            if (rules_visited[i]) {
+                continue;
+            }
+            if (llama_grammar_detect_left_recursion(vec_rules, i, &rules_visited, &rules_in_progress, &rules_may_be_empty)) {
+                LLAMA_LOG_ERROR("unsupported grammar, left recursion detected for nonterminal at index %zu\n", i);
+                return nullptr;
+            }
         }
-        if (llama_grammar_detect_left_recursion(vec_rules, i, &rules_visited, &rules_in_progress, &rules_may_be_empty)) {
-            LLAMA_LOG_ERROR("unsupported grammar, left recursion detected for nonterminal at index %zu", i);
-            return nullptr;
-        }
+    } catch (const std::exception & err) {
+        LLAMA_LOG_ERROR("unsupported grammar: %s\n", err.what());
+        return nullptr;
     }
 
     // loop over alternates of start rule to build initial stacks
@@ -1077,10 +1380,11 @@ struct llama_grammar * llama_grammar_init_impl(
         vocab,
         std::move(vec_rules),
         std::move(stacks),
-        /* .partial_utf8 = */     {},
-        /* .lazy = */             lazy,
-        /* .awaiting_trigger = */ lazy,
-        /* .trigger_buffer = */   "",
+        /* .partial_utf8 = */             {},
+        /* .lazy = */                     lazy,
+        /* .awaiting_trigger = */         lazy,
+        /* .trigger_buffer = */           "",
+        /* .trigger_buffer_positions = */ {},
         std::move(vec_trigger_tokens),
         std::move(vec_trigger_patterns),
     };
@@ -1103,6 +1407,7 @@ struct llama_grammar * llama_grammar_clone_impl(const struct llama_grammar & gra
         grammar.lazy,
         grammar.awaiting_trigger,
         grammar.trigger_buffer,
+        grammar.trigger_buffer_positions,
         grammar.trigger_tokens,
         grammar.trigger_patterns,
     };
@@ -1156,7 +1461,7 @@ void llama_grammar_apply_impl(const struct llama_grammar & grammar, llama_token_
             cur_p->data[i].logit = -INFINITY;
         } else {
             candidates_decoded.push_back(decode_utf8(piece, grammar.partial_utf8));
-            candidates_grammar.push_back({ i, candidates_decoded.back().first.data(), candidates_decoded.back().second });
+            candidates_grammar.push_back({ i, candidates_decoded.back().first.data(), candidates_decoded.back().second, id });
         }
     }
 
@@ -1175,31 +1480,35 @@ void llama_grammar_accept_impl(struct llama_grammar & grammar, llama_token token
         if (std::find(grammar.trigger_tokens.begin(), grammar.trigger_tokens.end(), token) != grammar.trigger_tokens.end()) {
             grammar.awaiting_trigger = false;
             grammar.trigger_buffer.clear();
-            llama_grammar_accept_str(grammar, piece);
+            llama_grammar_accept_token(grammar, token, piece);
             LLAMA_LOG_DEBUG("Grammar triggered on token %u (`%s`)", token, piece.c_str());
             return;
         } else {
+            auto position = std::make_pair(grammar.trigger_buffer.size(), grammar.trigger_buffer.size() + piece.size());
+            grammar.trigger_buffer_positions.push_back(std::make_pair(token, position));
             grammar.trigger_buffer += piece;
 
-            std::smatch match;
             for (const auto & trigger_pattern : grammar.trigger_patterns) {
-                if (std::regex_match(grammar.trigger_buffer, match, trigger_pattern.regex)) {
+                auto start = trigger_pattern.find(grammar.trigger_buffer);
+                if (start != std::string::npos) {
                     grammar.awaiting_trigger = false;
-                    // get from the first matched capturing group to the end of the string
-                    size_t start = std::string::npos;
-                    for (auto i = 1u; i < match.size(); i++) {
-                        if (match.length(i) > 0) {
-                            start = match.position(i);
-                            break;
+
+                    // replay tokens that overlap with [start, end)
+                    for (const auto & [tok, tok_pos] : grammar.trigger_buffer_positions) {
+                        auto [tok_start, tok_end] = tok_pos;
+                        if (tok_end <= start) {
+                            continue;
                         }
+
+                        size_t piece_start = (tok_start < start) ? start : tok_start; // allow for partial token pieces
+                        size_t piece_len = tok_end - piece_start;
+                        auto tok_piece = grammar.trigger_buffer.substr(piece_start, piece_len);
+                        llama_grammar_accept_token(grammar, tok, tok_piece);
                     }
-                    if (start == std::string::npos) {
-                        start = match.position(0);
-                    }
+
                     auto constrained_str = grammar.trigger_buffer.substr(start);
-                    // std::string constrained_str(match[1].first, grammar.trigger_buffer.end());
                     grammar.trigger_buffer.clear();
-                    llama_grammar_accept_str(grammar, constrained_str);
+                    grammar.trigger_buffer_positions.clear();
                     LLAMA_LOG_DEBUG("Grammar triggered on regex: '%s'\n", constrained_str.c_str());
                     return;
                 }
@@ -1218,7 +1527,7 @@ void llama_grammar_accept_impl(struct llama_grammar & grammar, llama_token token
         GGML_ABORT("fatal error");
     }
 
-    llama_grammar_accept_str(grammar, piece);
+    llama_grammar_accept_token(grammar, token, piece);
 }
 
 void llama_grammar_accept_str(struct llama_grammar & grammar, const std::string & piece) {
@@ -1235,3 +1544,59 @@ void llama_grammar_accept_str(struct llama_grammar & grammar, const std::string 
         throw std::runtime_error("Unexpected empty grammar stack after accepting piece: " + piece);
     }
 }
+
+void llama_grammar_accept_token(struct llama_grammar & grammar, llama_token token, const std::string & piece) {
+    // Note terminating 0 in decoded string
+    const auto   decoded     = decode_utf8(piece, grammar.partial_utf8);
+    const auto & code_points = decoded.first;
+
+    llama_grammar_stacks stacks_new;
+    stacks_new.reserve(grammar.stacks.size());
+
+    for (const auto & stack : grammar.stacks) {
+        if (stack.empty()) {
+            continue;
+        }
+
+        const llama_grammar_element * pos = stack.back();
+
+        if (pos->type == LLAMA_GRETYPE_TOKEN || pos->type == LLAMA_GRETYPE_TOKEN_NOT) {
+            if (llama_grammar_match_token(pos, token)) {
+                llama_grammar_stack new_stack(stack.begin(), stack.end() - 1);
+                if (!llama_grammar_is_end_of_sequence(pos + 1)) {
+                    new_stack.push_back(pos + 1);
+                }
+                llama_grammar_advance_stack(grammar.rules, new_stack, stacks_new);
+            }
+        } else {
+            llama_grammar_stacks current_stacks = {stack};
+
+            for (auto it = code_points.begin(), end = code_points.end() - 1; it != end; ++it) {
+                llama_grammar_stacks next_stacks;
+
+                for (const auto & cur_stack : current_stacks) {
+                    llama_grammar_accept_chr(grammar, cur_stack, *it, next_stacks);
+                }
+
+                current_stacks = std::move(next_stacks);
+                if (current_stacks.empty()) {
+                    break;
+                }
+            }
+
+            for (auto & surviving_stack : current_stacks) {
+                if (std::find(stacks_new.begin(), stacks_new.end(), surviving_stack) == stacks_new.end()) {
+                    stacks_new.emplace_back(surviving_stack);
+                }
+            }
+        }
+    }
+
+    grammar.stacks = std::move(stacks_new);
+    grammar.partial_utf8 = decoded.second;
+
+    if (grammar.stacks.empty()) {
+        throw std::runtime_error("Unexpected empty grammar stack after accepting piece: " + piece + " (" + std::to_string(token) + ")");
+    }
+}
+
