@@ -24,6 +24,7 @@ endif()
 # ---------------------------------------------------------------------------
 add_library(llama_jni SHARED
     llama_jni.cpp
+    llama_jni_classifier.cpp
     llama_jni_context.cpp
     llama_jni_sampler.cpp
     llama_jni_messages.cpp

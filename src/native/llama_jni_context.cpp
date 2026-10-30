@@ -79,6 +79,9 @@ llama_context* create_context(
     params.n_ctx   = static_cast<uint32_t>(contextSize);
     params.n_batch = static_cast<uint32_t>(batchSize);
     params.n_ubatch = static_cast<uint32_t>(uBatchSize);
+    if (is_bert_or_t5(model)) {
+        params.embeddings = true; // Crucial: enable embeddings allocation
+    }
 
     LOG("create_context: n_ctx=%d, n_batch=%d, n_ubatch=%d",
         contextSize, batchSize, uBatchSize);

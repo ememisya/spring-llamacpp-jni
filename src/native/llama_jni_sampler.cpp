@@ -108,7 +108,7 @@ static llama_sampler * create_ban_sampler(
 
 llama_sampler* create_sampler(
         const llama_vocab* vocab,
-        llama_model* model,
+        const llama_model* model,
         float temperature,
         float dynamicTemperature,
         float minP,
@@ -134,6 +134,7 @@ llama_sampler* create_sampler(
     // Hard‑coded banned phrases → tokenize → ban tokens if you wanted...
     // ---------------------------------------------------------------------
     std::vector<std::string> banned_phrases = {
+      "<think>", "</think>"
     };
 
     llama_sampler* ban = create_ban_sampler(vocab, banned_phrases);
@@ -143,6 +144,7 @@ llama_sampler* create_sampler(
     // Penalty sampler (repetition, frequency, presence)
     // ---------------------------------------------------------------------
     llama_sampler* penalties = llama_sampler_init_penalties(
+        llama_vocab_n_tokens(vocab),
         penaltyLastN,
         repeatPenalty,
         freqPenalty,
@@ -166,7 +168,6 @@ llama_sampler* create_sampler(
 
     llama_sampler* dry = llama_sampler_init_dry(
         vocab,
-        train_ctx,
         dryMultiplier,
         dryBase,
         dryAllowedLength,
