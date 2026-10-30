@@ -36,6 +36,11 @@ public class LlamaCppService {
     private LlamaCpp llama = new LlamaCpp();
 
     /**
+     * Last model slot loaded into memory
+     */
+    private int loadedSlot = 0;
+
+    /**
      * Pointer to the loaded llama.cpp model.
      */
     private long modelPtr;
@@ -72,6 +77,7 @@ public class LlamaCppService {
      */
     @PostConstruct
     public void initializeBackendAndModel() {
+        llama.setLogLevel();
         if (modelPath.isEmpty()) {
             throw new IllegalStateException(
                     "You must specify at least one "
@@ -124,6 +130,7 @@ public class LlamaCppService {
         if (modelPtr == 0) {
             modelPtr = llama.loadModel(
                     modelPath.get(modelIndex), gpuLayers.get(gpuLayersIndex));
+            loadedSlot = modelIndex;
         }
     }
 
@@ -150,16 +157,28 @@ public class LlamaCppService {
      *
      * @param params chat parameters including messages and sampler
      * configuration
+     * @param isEncoder whether to run encoder inference only
      * @return generated text from llama.cpp
      * @throws IllegalStateException if the context has not been initialized
      */
-    public String chat(final ChatParams params) {
+    public String generate(final ChatParams params, final boolean isEncoder) {
         if (contextPtr == 0) {
             throw new IllegalStateException(
                     "Context not initialized, please try again...");
         }
+        return llama.generateWithContext(modelPtr, contextPtr, params, isEncoder);
+    }
 
-        return llama.generateWithContext(modelPtr, contextPtr, params);
+    /**
+     * Generates a chat response using the active llama.cpp context.
+     *
+     * @param params chat parameters including messages and sampler
+     * configuration
+     * @return generated text from llama.cpp
+     * @throws IllegalStateException if the context has not been initialized
+     */
+    public String generate(final ChatParams params) {
+        return generate(params, false);
     }
 
     /**
@@ -240,6 +259,15 @@ public class LlamaCppService {
      */
     public List<Integer> getGpuLayers() {
         return gpuLayers;
+    }
+
+    /**
+     * Gets the last loaded model slot
+     *
+     * @return loadedSlot
+     */
+    public int getLoadedSlot() {
+        return loadedSlot;
     }
 
     /**

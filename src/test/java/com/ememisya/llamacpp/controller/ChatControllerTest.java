@@ -4,6 +4,7 @@ import com.ememisya.llamacpp.ChatMessageRole;
 import com.ememisya.llamacpp.domain.ChatMessage;
 import com.ememisya.llamacpp.domain.ChatParams;
 import com.ememisya.llamacpp.domain.ChatParamsLog;
+import com.ememisya.llamacpp.model.ChatParamsLogIdentifierModel;
 import com.ememisya.llamacpp.repository.ChatMessageRepository;
 import com.ememisya.llamacpp.repository.ChatParamsLogRepository;
 import com.ememisya.llamacpp.repository.ChatParamsRepository;
@@ -11,22 +12,24 @@ import com.ememisya.llamacpp.service.LlamaCppService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -119,6 +122,22 @@ class ChatControllerTest {
     }
 
     /**
+     * Tests successful retrieval of chat parameter log identifiers by year.
+     *
+     * @throws Exception if perform operation fails
+     */
+    @Test
+    @DisplayName("GET /v1/chat/chat-params-log-identifiers - Success")
+    void testGetChatParamsLogIdentifierModels() throws Exception {
+        List<ChatParamsLogIdentifierModel> identifiers = Collections.emptyList();
+        when(chatParamsLogRepository.findByYear(2026)).thenReturn(identifiers);
+
+        mockMvc.perform(get("/v1/chat/chat-params-log-identifiers").param("year", "2026"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("[]"));
+    }
+
+    /**
      * Tests successful retrieval of a chat parameter log by ID.
      *
      * @throws Exception if perform operation fails
@@ -138,6 +157,20 @@ class ChatControllerTest {
     }
 
     /**
+     * Tests 404 response when chat parameter log is not found by ID.
+     *
+     * @throws Exception if perform operation fails
+     */
+    @Test
+    @DisplayName("GET /v1/chat/chat-params-log - Not Found")
+    void testGetChatParamsLogNotFound() throws Exception {
+        when(chatParamsLogRepository.findById(99L)).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/v1/chat/chat-params-log").param("id", "99"))
+                .andExpect(status().isNotFound());
+    }
+
+    /**
      * Tests deletion of a saved chat parameter log entry.
      *
      * @throws Exception if perform operation fails
@@ -153,6 +186,20 @@ class ChatControllerTest {
                 .andExpect(status().isOk());
 
         verify(chatParamsLogRepository).delete(log);
+    }
+
+    /**
+     * Tests 404 response when deleting a non-existent chat parameter log.
+     *
+     * @throws Exception if perform operation fails
+     */
+    @Test
+    @DisplayName("DELETE /v1/chat/chat-params-log - Not Found")
+    void testDeleteChatParamsLogNotFound() throws Exception {
+        when(chatParamsLogRepository.findById(99L)).thenReturn(Optional.empty());
+
+        mockMvc.perform(delete("/v1/chat/chat-params-log").param("id", "99"))
+                .andExpect(status().isNotFound());
     }
 
     /**
@@ -175,7 +222,22 @@ class ChatControllerTest {
     }
 
     /**
-     * Tests getting the models list.
+     * Tests retrieving the model slot.
+     *
+     * @throws Exception if perform operation fails
+     */
+    @Test
+    @DisplayName("GET /v1/chat/model-slot - Success")
+    void testGetModelSlot() throws Exception {
+        when(llamaCppService.getLoadedSlot()).thenReturn(2);
+
+        mockMvc.perform(get("/v1/chat/model-slot"))
+                .andExpect(status().isOk())
+                .andExpect(content().string("2"));
+    }
+
+    /**
+     * Tests getting the models list with labels and fallback paths.
      *
      * @throws Exception if perform operation fails
      */
@@ -239,7 +301,7 @@ class ChatControllerTest {
         requestParams.setScratchPad("Prompt");
         requestParams.getMessages().add(new ChatMessage(requestParams, ChatMessageRole.USER, "How are you?"));
 
-        when(llamaCppService.chat(any(ChatParams.class))).thenReturn("I am doing well!");
+        when(llamaCppService.generate(any(ChatParams.class))).thenReturn("I am doing well!");
 
         mockMvc.perform(post("/v1/chat/completions")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -253,6 +315,128 @@ class ChatControllerTest {
                 requestParams.getBatchSize(),
                 requestParams.getuBatchSize()
         );
-        verify(llamaCppService).chat(any(ChatParams.class));
+        verify(llamaCppService).generate(any(ChatParams.class));
+    }
+
+    /**
+     * Tests handling exception during chat completions.
+     *
+     * @throws Exception if perform operation fails
+     */
+    @Test
+    @DisplayName("POST /v1/chat/completions - Handles IllegalStateException")
+    void testCompletionsException() throws Exception {
+        ChatParams requestParams = new ChatParams();
+        when(llamaCppService.generate(any(ChatParams.class))).thenThrow(new IllegalStateException("Failed"));
+
+        mockMvc.perform(post("/v1/chat/completions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(requestParams)))
+                .andExpect(status().isBadRequest());
+    }
+
+    /**
+     * Tests encoder inference endpoint successfully.
+     *
+     * @throws Exception if perform operation fails
+     */
+    @Test
+    @DisplayName("POST /v1/chat/encoder - Success")
+    void testEncoderSuccess() throws Exception {
+        ChatParams requestParams = new ChatParams();
+        when(llamaCppService.generate(any(ChatParams.class), eq(true))).thenReturn("Classification Result");
+
+        mockMvc.perform(post("/v1/chat/encoder")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(requestParams)))
+                .andExpect(status().isOk())
+                .andExpect(content().string("Classification Result"));
+
+        verify(llamaCppService).freeContext();
+        verify(llamaCppService).initializeContext(any(Integer.class), any(Integer.class), any(Integer.class));
+        verify(llamaCppService).generate(any(ChatParams.class), eq(true));
+    }
+
+    /**
+     * Tests handling exception during encoder endpoint execution.
+     *
+     * @throws Exception if perform operation fails
+     */
+    @Test
+    @DisplayName("POST /v1/chat/encoder - Handles IllegalStateException")
+    void testEncoderException() throws Exception {
+        ChatParams requestParams = new ChatParams();
+        doThrow(new IllegalStateException("Error"))
+                .when(llamaCppService).initializeContext(
+                        any(Integer.class), any(Integer.class), any(Integer.class));
+
+        mockMvc.perform(post("/v1/chat/encoder")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(requestParams)))
+                .andExpect(status().isBadRequest());
+    }
+
+    /**
+     * Tests token count endpoint when context is already initialized.
+     *
+     * @throws Exception if perform operation fails
+     */
+    @Test
+    @DisplayName("POST /v1/chat/token-count - Success when context initialized")
+    void testGetTokenCountInitialized() throws Exception {
+        ChatParams requestParams = new ChatParams();
+        when(llamaCppService.isContextInitialized()).thenReturn(true);
+        when(llamaCppService.getTokenCount(any(ChatParams.class))).thenReturn(42);
+
+        mockMvc.perform(post("/v1/chat/token-count")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(requestParams)))
+                .andExpect(status().isOk())
+                .andExpect(content().string("42"));
+
+        verify(llamaCppService).getTokenCount(any(ChatParams.class));
+    }
+
+    /**
+     * Tests token count endpoint when context requires initialization.
+     *
+     * @throws Exception if perform operation fails
+     */
+    @Test
+    @DisplayName("POST /v1/chat/token-count - Initializes context if uninitialized")
+    void testGetTokenCountUninitialized() throws Exception {
+        ChatParams requestParams = new ChatParams();
+        when(llamaCppService.isContextInitialized()).thenReturn(false);
+        when(llamaCppService.getTokenCount(any(ChatParams.class))).thenReturn(15);
+
+        mockMvc.perform(post("/v1/chat/token-count")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(requestParams)))
+                .andExpect(status().isOk())
+                .andExpect(content().string("15"));
+
+        verify(llamaCppService).initializeContext(
+                requestParams.getContextSize(),
+                requestParams.getBatchSize(),
+                requestParams.getuBatchSize()
+        );
+        verify(llamaCppService).getTokenCount(any(ChatParams.class));
+    }
+
+    /**
+     * Tests token count endpoint handling IllegalStateException.
+     *
+     * @throws Exception if perform operation fails
+     */
+    @Test
+    @DisplayName("POST /v1/chat/token-count - Handles IllegalStateException")
+    void testGetTokenCountException() throws Exception {
+        ChatParams requestParams = new ChatParams();
+        when(llamaCppService.isContextInitialized()).thenThrow(new IllegalStateException("Error"));
+
+        mockMvc.perform(post("/v1/chat/token-count")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(requestParams)))
+                .andExpect(status().isBadRequest());
     }
 }

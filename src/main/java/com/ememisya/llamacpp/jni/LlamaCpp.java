@@ -38,6 +38,11 @@ public class LlamaCpp {
      * Must be called before loading a model.
      */
     public native void initBackend();
+    
+    /**
+     * Initializes the llama.cpp log level.  Must be called before everything.
+     */
+    public native void setLogLevel();
 
     /**
      * Frees backend resources allocated by llama.cpp. Should be called once
@@ -67,9 +72,11 @@ public class LlamaCpp {
      *
      * @param modelPtr pointer to the loaded model
      * @param params chat parameters including messages and sampler settings
+     * @param isEncoder whether to run encoder inference only
      * @return generated text
      */
-    public native String generate(final long modelPtr, final ChatParams params);
+    public native String generate(final long modelPtr, final ChatParams params,
+            final boolean isEncoder);
 
     /**
      * Performs stateful text generation using an existing llama_context.
@@ -77,12 +84,14 @@ public class LlamaCpp {
      * @param modelPtr pointer to the loaded model
      * @param ctxPtr pointer to an existing llama_context
      * @param params chat parameters including messages and sampler settings
+     * @param isEncoder whether to run encoder inference only
      * @return generated text
      */
     public native String generateWithContext(
             final long modelPtr,
             final long ctxPtr,
-            final ChatParams params
+            final ChatParams params,
+            final boolean isEncoder
     );
 
     /**

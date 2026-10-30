@@ -70,6 +70,26 @@ public class ChatParams {
     private int uBatchSize = 512;
 
     /**
+     * Llama.cpp max token generation limit.
+     */
+    @Column(nullable = false)
+    private int maxTokens = 512;
+
+    /**
+     * Llama.cpp soft limit which encourages the prompt to provide EOG
+     * incrementally.
+     */
+    @Column(nullable = false)
+    private int softLimit = 340;
+
+    /**
+     * Llama.cpp soft limit which encourages the prompt to provide EOG
+     * incrementally.
+     */
+    @Column(nullable = false)
+    private float softLimitPenalty = 5.0f;
+
+    /**
      * Temperature for sampling (higher = more random).
      */
     private float temperature = 0.8023f;
@@ -241,6 +261,15 @@ public class ChatParams {
      */
     public float getTemperature() {
         return temperature;
+    }
+
+    /**
+     * Sets the id.
+     *
+     * @param id entity id
+     */
+    public void setId(final Long id) {
+        this.id = id;
     }
 
     /**
@@ -449,4 +478,59 @@ public class ChatParams {
     public void setRngSeed(final int rngSeed) {
         this.rngSeed = rngSeed;
     }
+
+    /**
+     * Returns the llama.cpp max token generation limit.
+     *
+     * @return max token generation limit
+     */
+    public int getMaxTokens() {
+        return maxTokens;
+    }
+
+    /**
+     * Sets the llama.cpp max token generation limit.
+     *
+     * @param maxTokens max token generation limit
+     */
+    public void setMaxTokens(final int maxTokens) {
+        this.maxTokens = maxTokens;
+    }
+
+    /**
+     * Returns the llama.cpp soft limit.
+     *
+     * @return soft limit
+     */
+    public int getSoftLimit() {
+        return softLimit;
+    }
+
+    /**
+     * Sets the llama.cpp soft limit.
+     *
+     * @param softLimit soft limit
+     */
+    public void setSoftLimit(final int softLimit) {
+        this.softLimit = softLimit;
+    }
+
+    /**
+     * Returns the llama.cpp soft limit penalty.
+     *
+     * @return soft limit penalty
+     */
+    public float getSoftLimitPenalty() {
+        return softLimitPenalty;
+    }
+
+    /**
+     * Sets the llama.cpp soft limit penalty.
+     *
+     * @param softLimitPenalty soft limit penalty
+     */
+    public void setSoftLimitPenalty(final float softLimitPenalty) {
+        this.softLimitPenalty = softLimitPenalty;
+    }
+
 }

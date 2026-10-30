@@ -179,6 +179,7 @@ public class ChatController {
                         chatMessageRepository.save(transientChatMessage));
             }
         }
+        requestBody.setId(null);
         requestBody.setMessages(new ArrayList<>());
         final ChatParams persistedParams
                 = chatParamsRepository.save(requestBody);
@@ -216,9 +217,36 @@ public class ChatController {
         }
 
         try {
-            return llama.chat(requestBody);
+            return llama.generate(requestBody);
         } catch (final IllegalStateException e) {
             lastContextHash = null;
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Could not initialize context");
+        }
+    }
+
+    /**
+     * Generates an encoder classification result using llama.cpp via treating
+     * the current model as an encoder.
+     *
+     * @param requestBody the completions parameters including messages and
+     * model settings
+     * @return the generated assistant response
+     */
+    @CrossOrigin
+    @PostMapping("/encoder")
+    public String postEncoder(@RequestBody final ChatParams requestBody) {
+        try {
+            lastContextHash = null;
+            llama.freeContext();
+            llama.initializeContext(
+                    requestBody.getContextSize(),
+                    requestBody.getBatchSize(),
+                    requestBody.getuBatchSize()
+            );
+            return llama.generate(requestBody, true);
+        } catch (final IllegalStateException e) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "Could not initialize context");
@@ -237,6 +265,17 @@ public class ChatController {
         llama.freeModel();
         llama.loadModel(modelIndex, modelIndex);
         lastContextHash = null;
+    }
+
+    /**
+     * Returns the slot for last model loaded.
+     *
+     * @return model slot index
+     */
+    @CrossOrigin
+    @GetMapping("/model-slot")
+    public int getModelSlot() {
+        return llama.getLoadedSlot();
     }
 
     /**
