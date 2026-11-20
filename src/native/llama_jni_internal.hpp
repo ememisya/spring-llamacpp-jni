@@ -143,7 +143,8 @@ void free_messages(std::vector<llama_chat_message>& msgs);
 std::string apply_chat_template(
     const struct llama_model* model,
     llama_context* ctx,
-    const std::vector<llama_chat_message>& msgs
+    const std::vector<llama_chat_message>& msgs,
+    bool thinking
 );
 
 /**

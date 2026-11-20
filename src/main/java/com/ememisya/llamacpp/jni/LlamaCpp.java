@@ -40,9 +40,10 @@ public class LlamaCpp {
     public native void initBackend();
     
     /**
-     * Initializes the llama.cpp log level.  Must be called before everything.
+     * Initializes the ggml log level.  Must be called before everything.
+     * @param logLevel Log level for ggml
      */
-    public native void setLogLevel();
+    public native void setLogLevel(final String logLevel);
 
     /**
      * Frees backend resources allocated by llama.cpp. Should be called once
@@ -73,10 +74,11 @@ public class LlamaCpp {
      * @param modelPtr pointer to the loaded model
      * @param params chat parameters including messages and sampler settings
      * @param isEncoder whether to run encoder inference only
+     * @param thinking search templates in model and disable thinking if false
      * @return generated text
      */
     public native String generate(final long modelPtr, final ChatParams params,
-            final boolean isEncoder);
+            final boolean isEncoder, final boolean thinking);
 
     /**
      * Performs stateful text generation using an existing llama_context.
@@ -85,13 +87,15 @@ public class LlamaCpp {
      * @param ctxPtr pointer to an existing llama_context
      * @param params chat parameters including messages and sampler settings
      * @param isEncoder whether to run encoder inference only
+     * @param thinking search templates in model and disable thinking if false
      * @return generated text
      */
     public native String generateWithContext(
             final long modelPtr,
             final long ctxPtr,
             final ChatParams params,
-            final boolean isEncoder
+            final boolean isEncoder,
+            final boolean thinking
     );
 
     /**

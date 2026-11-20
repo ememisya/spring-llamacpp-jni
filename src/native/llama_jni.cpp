@@ -6,7 +6,52 @@
 
 #include "llama_jni_internal.hpp"
 
+#include <atomic>
+
 namespace {
+
+enum class LogThreshold {
+    Off,
+    Debug,
+    Info,
+    Warn,
+    Error
+};
+
+std::atomic<LogThreshold> g_log_threshold{LogThreshold::Warn};
+
+LogThreshold parse_log_threshold(const char* level_str) {
+    if (!level_str) return LogThreshold::Warn;
+    if (std::strcmp(level_str, "OFF") == 0) return LogThreshold::Off;
+    if (std::strcmp(level_str, "DEBUG") == 0) return LogThreshold::Debug;
+    if (std::strcmp(level_str, "INFO") == 0) return LogThreshold::Info;
+    if (std::strcmp(level_str, "WARN") == 0) return LogThreshold::Warn;
+    if (std::strcmp(level_str, "ERROR") == 0) return LogThreshold::Error;
+    return LogThreshold::Warn;
+}
+
+bool should_log(enum ggml_log_level level, LogThreshold threshold) {
+    if (threshold == LogThreshold::Off) return false;
+
+    int min_level = GGML_LOG_LEVEL_WARN;
+    switch (threshold) {
+        case LogThreshold::Debug: min_level = GGML_LOG_LEVEL_DEBUG; break;
+        case LogThreshold::Info:  min_level = GGML_LOG_LEVEL_INFO;  break;
+        case LogThreshold::Warn:  min_level = GGML_LOG_LEVEL_WARN;  break;
+        case LogThreshold::Error: min_level = GGML_LOG_LEVEL_ERROR; break;
+        case LogThreshold::Off:   return false;
+    }
+    return static_cast<int>(level) >= min_level;
+}
+
+static void filtered_log_callback(enum ggml_log_level level, const char* text, void* user_data) {
+    (void)user_data;
+    if (!text) return;
+    LogThreshold threshold = g_log_threshold.load(std::memory_order_relaxed);
+    if (should_log(level, threshold)) {
+        std::fprintf(stderr, "%s", text);
+    }
+}
 
 /**
  * Extract sampling configuration parameters from a Java ChatParams object.
@@ -87,22 +132,17 @@ bool prepare_prompt_tokens(
         const struct llama_model* model,
         llama_context* ctx,
         const llama_vocab* vocab,
+        bool thinking,
         std::vector<llama_token>& out_tokens) {
     auto msgs = extract_messages(env, chatParamsObj);
     if (msgs.empty()) return false;
 
-    std::string prompt = apply_chat_template(model, ctx, msgs);
+    std::string prompt = apply_chat_template(model, ctx, msgs, thinking);
     free_messages(msgs);
     if (prompt.empty()) return false;
 
     out_tokens = tokenize_prompt(vocab, ctx, prompt);
     return !out_tokens.empty();
-}
-
-static void error_only_log_callback(enum ggml_log_level level, const char * text, void * user_data) {
-    if (level == GGML_LOG_LEVEL_WARN) {
-        std::fprintf(stderr, "%s", text);
-    }
 }
 
 } // namespace
@@ -159,11 +199,16 @@ Java_com_ememisya_llamacpp_jni_LlamaCpp_initBackend(JNIEnv* env, jobject obj) {
 }
 
 /**
- * Initialize the llama logging level.
+ * Set the llama logging level from a string (OFF, DEBUG, INFO, WARN, ERROR).
  */
 JNIEXPORT void JNICALL
-Java_com_ememisya_llamacpp_jni_LlamaCpp_setLogLevel(JNIEnv* env, jobject obj) {
-    llama_log_set(error_only_log_callback, nullptr);
+Java_com_ememisya_llamacpp_jni_LlamaCpp_setLogLevel(JNIEnv* env, jobject obj, jstring logLevel) {
+    const char* level_chars = logLevel ? env->GetStringUTFChars(logLevel, nullptr) : nullptr;
+    g_log_threshold.store(parse_log_threshold(level_chars), std::memory_order_relaxed);
+    if (logLevel && level_chars) {
+        env->ReleaseStringUTFChars(logLevel, level_chars);
+    }
+    llama_log_set(filtered_log_callback, nullptr);
 }
 
 /**
@@ -225,7 +270,7 @@ Java_com_ememisya_llamacpp_jni_LlamaCpp_getTokenCount(
     if (!model || !ctx) return -1;
 
     std::vector<llama_token> tokens;
-    if (!prepare_prompt_tokens(env, chatParamsObj, model, ctx, llama_model_get_vocab(model), tokens)) {
+    if (!prepare_prompt_tokens(env, chatParamsObj, model, ctx, llama_model_get_vocab(model), false, tokens)) {
         return -2;
     }
     return static_cast<jint>(tokens.size());
@@ -239,11 +284,12 @@ Java_com_ememisya_llamacpp_jni_LlamaCpp_getTokenCount(
  * @param modelPtr Pointer to llama_model
  * @param chatParamsObj Java ChatParams instance
  * @param isEncoder Whether to run encoder inference only
+ * @param thinking search templates in model and disable thinking if false
  * @return Generated text as a Java string
  */
 JNIEXPORT jstring JNICALL
 Java_com_ememisya_llamacpp_jni_LlamaCpp_generate(
-        JNIEnv* env, jobject obj, jlong modelPtr, jobject chatParamsObj, jboolean isEncoder) {
+        JNIEnv* env, jobject obj, jlong modelPtr, jobject chatParamsObj, jboolean isEncoder, jboolean thinking) {
     auto* model = reinterpret_cast<llama_model*>(modelPtr);
     if (!model) return env->NewStringUTF("Error: null model");
 
@@ -257,7 +303,7 @@ Java_com_ememisya_llamacpp_jni_LlamaCpp_generate(
 
     std::vector<llama_token> tokens;
     const auto* vocab = llama_model_get_vocab(model);
-    if (!prepare_prompt_tokens(env, chatParamsObj, model, ctx, vocab, tokens)) {
+    if (!prepare_prompt_tokens(env, chatParamsObj, model, ctx, vocab, thinking == JNI_TRUE, tokens)) {
         llama_free(ctx);
         return env->NewStringUTF("Error: template or tokenization failed");
     }
@@ -276,18 +322,19 @@ Java_com_ememisya_llamacpp_jni_LlamaCpp_generate(
  * @param ctxPtr Pointer to llama_context
  * @param chatParamsObj Java ChatParams instance
  * @param isEncoder Whether to run encoder inference only
+ * @param thinking search templates in model and disable thinking if false
  * @return Generated text as a Java string
  */
 JNIEXPORT jstring JNICALL
 Java_com_ememisya_llamacpp_jni_LlamaCpp_generateWithContext(
-        JNIEnv* env, jobject obj, jlong modelPtr, jlong ctxPtr, jobject chatParamsObj, jboolean isEncoder) {
+        JNIEnv* env, jobject obj, jlong modelPtr, jlong ctxPtr, jobject chatParamsObj, jboolean isEncoder, jboolean thinking) {
     auto* model = reinterpret_cast<llama_model*>(modelPtr);
     auto* ctx = reinterpret_cast<llama_context*>(ctxPtr);
     if (!model || !ctx) return env->NewStringUTF("Error: null model or context");
 
     std::vector<llama_token> tokens;
     const auto* vocab = llama_model_get_vocab(model);
-    if (!prepare_prompt_tokens(env, chatParamsObj, model, ctx, vocab, tokens)) {
+    if (!prepare_prompt_tokens(env, chatParamsObj, model, ctx, vocab, thinking == JNI_TRUE, tokens)) {
         return env->NewStringUTF("Error: template or tokenization failed");
     }
 

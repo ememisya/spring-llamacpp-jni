@@ -134,7 +134,6 @@ llama_sampler* create_sampler(
     // Hard‑coded banned phrases → tokenize → ban tokens if you wanted...
     // ---------------------------------------------------------------------
     std::vector<std::string> banned_phrases = {
-      "<think>", "</think>"
     };
 
     llama_sampler* ban = create_ban_sampler(vocab, banned_phrases);

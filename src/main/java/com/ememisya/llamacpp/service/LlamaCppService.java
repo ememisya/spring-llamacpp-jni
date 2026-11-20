@@ -51,6 +51,11 @@ public class LlamaCppService {
     private long contextPtr;
 
     /**
+     * Log level for ggml.
+     */    
+    private String logLevel = "OFF";
+
+    /**
      * Filesystem path to the GGUF model file.
      */
     private List<String> modelPath = new ArrayList<>();
@@ -77,7 +82,7 @@ public class LlamaCppService {
      */
     @PostConstruct
     public void initializeBackendAndModel() {
-        llama.setLogLevel();
+        llama.setLogLevel(getLogLevel());
         if (modelPath.isEmpty()) {
             throw new IllegalStateException(
                     "You must specify at least one "
@@ -166,7 +171,8 @@ public class LlamaCppService {
             throw new IllegalStateException(
                     "Context not initialized, please try again...");
         }
-        return llama.generateWithContext(modelPtr, contextPtr, params, isEncoder);
+        return llama.generateWithContext(modelPtr, contextPtr, params,
+                isEncoder, false);
     }
 
     /**
@@ -223,6 +229,24 @@ public class LlamaCppService {
      */
     public List<String> getModelPath() {
         return modelPath;
+    }
+    
+    /**
+     * Sets the log level for ggml
+     *
+     * @param logLevel log level
+     */
+    public void setLogLevel(final String logLevel) {
+        this.logLevel = logLevel;
+    }
+
+    /**
+     * Gets the log level set for ggml
+     *
+     * @return log level
+     */
+    public String getLogLevel() {
+        return logLevel;
     }
 
     /**

@@ -1,8 +1,16 @@
 import { mount } from '@vue/test-utils'
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import ChatMessages from '@/components/chat/ChatMessages.vue'
 
 describe('ChatMessages.vue', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('renders chat messages and typing indicator correctly', () => {
     const messages = [
       { id: 1, role: 'user', content: 'Hi' },
@@ -34,6 +42,10 @@ describe('ChatMessages.vue', () => {
 
     const deleteBtn = wrapper.find('.btn-chat')
     await deleteBtn.trigger('click')
+
+    expect(wrapper.emitted('delete-message')).toBeFalsy()
+
+    await vi.advanceTimersByTimeAsync(350)
 
     expect(wrapper.emitted('delete-message')).toBeTruthy()
     expect(wrapper.emitted('delete-message')?.[0]).toEqual([1])

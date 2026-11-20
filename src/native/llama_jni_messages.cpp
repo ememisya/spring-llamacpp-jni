@@ -162,12 +162,14 @@ void free_messages(std::vector<llama_chat_message>& msgs) {
  * @param model Loaded llama_model instance
  * @param ctx Active llama_context
  * @param msgs Vector of llama_chat_message structs
+ * @param thinking search templates in model and disable thinking if false
  * @return A fully formatted prompt string, or an empty string on failure
  */
 std::string apply_chat_template(
         const struct llama_model* model,
         llama_context* ctx,
-        const std::vector<llama_chat_message>& msgs) {
+        const std::vector<llama_chat_message>& msgs,
+        bool thinking) {
     const char* tmpl = llama_model_chat_template(model, nullptr);
     if (!tmpl) {
         return concatenate_fallback_messages(msgs);
@@ -180,5 +182,27 @@ std::string apply_chat_template(
         return {};
     }
 
-    return std::string(buffer.data(), len);
+    std::string result(buffer.data(), len);
+    std::string tmpl_str(tmpl);
+    if (!thinking &&
+        tmpl_str.find("{%- if enable_thinking is defined and enable_thinking is false %}") != std::string::npos) {
+        result += "<think>\n\n</think>\n\n";
+    }
+
+    return result;
+}
+
+/**
+ * Apply the model's chat template to a list of messages.
+ *
+ * @param model Loaded llama_model instance
+ * @param ctx Active llama_context
+ * @param msgs Vector of llama_chat_message structs
+ * @return A fully formatted prompt string, or an empty string on failure
+ */
+inline std::string apply_chat_template(
+        const struct llama_model* model,
+        llama_context* ctx,
+        const std::vector<llama_chat_message>& msgs) {
+    return apply_chat_template(model, ctx, msgs, true);
 }
